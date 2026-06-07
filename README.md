@@ -14,7 +14,7 @@ pharmapele/
 ├── frontend/
 │   └── index.html           ← Interface web
 ├── sql/
-│   └── 01_criar_banco.sql   ← Script do banco de dados
+│   └── pharmapele_schema_completo.sql ← Script do banco de dados (Estrutura Completa)
 ├── iniciar.bat              ← Iniciar no Windows (duplo clique)
 └── README.md
 ```
@@ -41,7 +41,7 @@ pharmapele/
 3. Clique com botão direito em **Databases → Create → Database...**
 4. Nome: `pharmapele` → clique OK
 5. Clique com botão direito em `pharmapele` → **Query Tool**
-6. Abra o arquivo `sql/01_criar_banco.sql` e execute (**F5**)
+6. Abra o arquivo `sql/pharmapele_schema_completo.sql` e execute (**F5**)
 
 ---
 
@@ -83,6 +83,14 @@ Depois, abra o navegador em: **http://localhost:8000**
 ---
 
 ## 🚀 Como Usar
+
+### Usuários de Teste (Níveis de Acesso)
+
+O banco de dados é inicializado com perfis de teste pré-configurados para simulação de permissões (todos compartilham a senha: `Ojuara10*`):
+
+*   **Administrador Master (Matriz):** `admin@pharmapele.com.br` — Acesso total a todas as franquias, lojas e gerenciamento de usuários.
+*   **Franqueado:** `franqueado@pharmapele.com.br` — Visualiza e gerencia apenas as lojas vinculadas à sua franquia específica.
+*   **Operador de Loja:** `operador@pharmapele.com.br` — Visualização restrita a uma única loja específica.
 
 ### Importar Notas Fiscais
 1. Acesse **Importar XMLs** no menu lateral

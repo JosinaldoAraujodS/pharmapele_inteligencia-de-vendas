@@ -1,0 +1,1471 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Pharmapele — Inteligência de Vendas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --brand: #0b4a7d;
+  --brand-light: #207bc7;
+  --brand-pale: #e8f2fc;
+  --ouro: #c8963e;
+  --ouro-pale: #fdf4e7;
+  --creme: #faf8f4;
+  --cinza-1: #f5f3ee;
+  --cinza-2: #e8e5df;
+  --cinza-3: #b8b3a8;
+  --texto: #1c1a17;
+  --texto-leve: #6b6660;
+  --alerta: #c0392b;
+  --alerta-pale: #fdf0ee;
+  --info: #2471a3;
+  --info-pale: #eaf4fc;
+  --radius: 12px;
+  --shadow: 0 2px 16px rgba(0,0,0,.07);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,.12);
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--creme);
+  color: var(--texto);
+  min-height: 100vh;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  position: fixed; top:0; left:0;
+  width: 240px; height: 100vh;
+  background: var(--brand);
+  display: flex; flex-direction: column;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.sidebar-logo {
+  padding: 28px 24px 20px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.sidebar-logo .brand {
+  font-family: 'DM Serif Display', serif;
+  font-size: 22px; color: #fff;
+  line-height: 1;
+}
+.sidebar-logo .sub {
+  font-size: 11px; color: rgba(255,255,255,.5);
+  text-transform: uppercase; letter-spacing: 1.5px;
+  margin-top: 4px;
+}
+
+.nav {padding: 16px 12px; flex:1;}
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: rgba(255,255,255,.7);
+  font-size: 14px; font-weight: 500;
+  transition: all .2s;
+  margin-bottom: 2px;
+}
+.nav-item:hover { background: rgba(255,255,255,.1); color: #fff; }
+.nav-item.active { background: rgba(255,255,255,.15); color: #fff; }
+.nav-item .icon { font-size: 18px; width: 22px; text-align: center; }
+
+.nav-section {
+  font-size: 10px; text-transform: uppercase;
+  letter-spacing: 1.5px; color: rgba(255,255,255,.35);
+  padding: 16px 14px 6px;
+}
+
+.sidebar-footer {
+  padding: 16px;
+  border-top: 1px solid rgba(255,255,255,.1);
+  font-size: 12px; color: rgba(255,255,255,.4);
+}
+
+/* ── Main ── */
+.main {
+  margin-left: 240px;
+  min-height: 100vh;
+  flex: 1;
+}
+
+.topbar {
+  background: #fff;
+  border-bottom: 1px solid var(--cinza-2);
+  padding: 0 32px;
+  height: 60px;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top:0; z-index: 50;
+}
+.topbar-title {
+  font-family: 'DM Serif Display', serif;
+  font-size: 20px; color: var(--texto);
+}
+.topbar-actions { display: flex; gap: 10px; align-items: center; }
+
+.page { display: none; padding: 32px; }
+.page.active { display: block; }
+
+/* ── Cards ── */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.kpi-card {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  box-shadow: var(--shadow);
+  border-left: 4px solid var(--brand);
+  position: relative;
+  overflow: hidden;
+}
+.kpi-card.ouro { border-left-color: var(--ouro); }
+.kpi-card.alerta { border-left-color: var(--alerta); }
+.kpi-card.info { border-left-color: var(--info); }
+
+.kpi-label {
+  font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--texto-leve); margin-bottom: 8px;
+}
+.kpi-value {
+  font-family: 'DM Serif Display', serif;
+  font-size: 28px; color: var(--texto); line-height: 1;
+}
+.kpi-sub { font-size: 12px; color: var(--texto-leve); margin-top: 6px; }
+
+/* ── Seções ── */
+.section-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.section-grid.single { grid-template-columns: 1fr; }
+.section-grid.three { grid-template-columns: 2fr 1fr; }
+
+.card {
+  background: #fff;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.card-header {
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--cinza-2);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.card-title {
+  font-weight: 600; font-size: 14px; color: var(--texto);
+}
+.card-body { padding: 20px 22px; }
+
+/* ── Tabelas ── */
+.table-wrap { overflow-x: auto; }
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: 13px;
+}
+th {
+  text-align: left; padding: 10px 12px;
+  font-size: 11px; text-transform: uppercase;
+  letter-spacing: .8px; color: var(--texto-leve);
+  border-bottom: 1px solid var(--cinza-2);
+  font-weight: 600;
+}
+td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--cinza-1);
+  vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--cinza-1); }
+
+/* ── Badges ── */
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+}
+.badge-brand { background: var(--brand-pale); color: var(--brand); }
+.badge-ouro { background: var(--ouro-pale); color: var(--ouro); }
+.badge-alerta { background: var(--alerta-pale); color: var(--alerta); }
+.badge-cinza { background: var(--cinza-1); color: var(--texto-leve); }
+.badge-info { background: var(--info-pale); color: var(--info); }
+
+/* ── Botões ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 18px; border-radius: 8px;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; transition: all .2s;
+  font-family: inherit;
+}
+.btn-primary { background: var(--brand); color: #fff; }
+.btn-primary:hover { background: var(--brand-light); }
+.btn-ouro { background: var(--ouro); color: #fff; }
+.btn-outline {
+  background: transparent; color: var(--texto);
+  border: 1.5px solid var(--cinza-2);
+}
+.btn-outline:hover { border-color: var(--brand); color: var(--brand); }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
+
+/* ── Upload ── */
+.upload-zone {
+  border: 2px dashed var(--cinza-2);
+  border-radius: var(--radius);
+  padding: 48px 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: all .2s;
+  background: var(--cinza-1);
+}
+.upload-zone:hover, .upload-zone.dragover {
+  border-color: var(--brand);
+  background: var(--brand-pale);
+}
+.upload-zone .icon { font-size: 40px; margin-bottom: 12px; }
+.upload-zone h3 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+.upload-zone p { font-size: 13px; color: var(--texto-leve); }
+
+.upload-result {
+  margin-top: 16px;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.result-item {
+  padding: 12px 16px;
+  display: flex; align-items: center; gap: 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--cinza-2);
+}
+.result-item:last-child { border-bottom: none; }
+.result-ok { background: var(--brand-pale); }
+.result-erro { background: var(--alerta-pale); }
+.result-dup { background: var(--ouro-pale); }
+
+/* ── Alerta cards ── */
+.alerta-card {
+  background: #fff;
+  border: 1px solid var(--cinza-2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  display: flex; align-items: center; gap: 16px;
+}
+.alerta-urgente { border-left: 4px solid var(--alerta); }
+.alerta-proximo { border-left: 4px solid var(--ouro); }
+.alerta-ok { border-left: 4px solid var(--brand); }
+.alerta-info { flex:1; }
+.alerta-info .nome { font-weight: 600; font-size: 14px; }
+.alerta-info .produto { font-size: 12px; color: var(--texto-leve); margin-top: 2px; }
+.alerta-dias { text-align: right; min-width: 80px; }
+.alerta-dias .num { font-family: 'DM Serif Display', serif; font-size: 22px; }
+.alerta-dias .label { font-size: 11px; color: var(--texto-leve); }
+
+/* ── Search ── */
+.search-bar {
+  width: 100%; padding: 10px 16px;
+  border: 1.5px solid var(--cinza-2);
+  border-radius: 8px; font-family: inherit;
+  font-size: 14px; background: var(--creme);
+  transition: border .2s; margin-bottom: 16px;
+}
+.search-bar:focus { outline: none; border-color: var(--brand); }
+
+/* ── Loading ── */
+.loading {
+  display: flex; align-items: center; justify-content: center;
+  padding: 48px; color: var(--texto-leve); gap: 10px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--cinza-2);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+
+.empty {
+  text-align: center; padding: 40px;
+  color: var(--texto-leve); font-size: 14px;
+}
+
+/* ── Whatsapp prep ── */
+.wa-template {
+  background: #e7f9e7;
+  border: 1px solid #b5e7b5;
+  border-radius: 12px;
+  padding: 16px 18px;
+  font-size: 13px; line-height: 1.6;
+  margin-bottom: 12px;
+  position: relative;
+}
+.wa-template::before {
+  content: '💬';
+  position: absolute; top: 12px; right: 14px;
+  font-size: 18px;
+}
+
+/* ── Responsivo ── */
+@media(max-width: 900px) {
+  .section-grid { grid-template-columns: 1fr; }
+  .section-grid.three { grid-template-columns: 1fr; }
+}
+
+.progress-bar {
+  background: var(--cinza-2);
+  border-radius: 4px; height: 6px; overflow: hidden;
+}
+.progress-fill {
+  height: 100%; border-radius: 4px;
+  background: linear-gradient(90deg, var(--brand-light), var(--brand));
+  transition: width .4s;
+}
+</style>
+</head>
+<body>
+
+<!-- TELA DE LOGIN -->
+<div id="login-container" style="display: none; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #021629 0%, #052e50 50%, #0b4a7d 100%); padding: 24px;">
+  <div style="background: rgba(255, 255, 255, 0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 40px; width: 100%; max-width: 420px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); animation: scaleIn 0.5s ease-out; text-align: left;">
+    <div style="text-align: center; margin-bottom: 32px;">
+      <div style="font-family: 'DM Serif Display', serif; font-size: 38px; color: #ffffff; letter-spacing: -0.5px;">Pharmapele</div>
+      <div style="font-size: 12px; color: var(--ouro); text-transform: uppercase; letter-spacing: 2px; margin-top: 4px; font-weight: 600;">Inteligência de Vendas</div>
+    </div>
+    
+    <div id="login-erro" style="display: none; background: rgba(192, 57, 43, 0.2); border: 1px solid rgba(192, 57, 43, 0.4); border-radius: 8px; padding: 12px 16px; margin-bottom: 24px; color: #ff8a7a; font-size: 13px; font-weight: 500; align-items: center; gap: 10px;">
+      <span>⚠️</span> <span id="login-erro-msg">E-mail ou senha incorretos</span>
+    </div>
+
+    <form id="login-form" onsubmit="realizarLogin(event)">
+      <div style="margin-bottom: 20px;">
+        <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,0.7); margin-bottom: 8px;">E-mail corporativo</label>
+        <input type="email" id="login-email" required placeholder="ex: nome@pharmapele.com.br" style="width: 100%; padding: 14px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); color: #fff; font-size: 14px; outline: none; transition: all 0.3s;" onfocus="this.style.borderColor='var(--ouro)'; this.style.boxShadow='0 0 10px rgba(200, 150, 62, 0.2)';" onblur="this.style.borderColor='rgba(255,255,255,0.15)'; this.style.boxShadow='none';">
+      </div>
+
+      <div style="margin-bottom: 28px;">
+        <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,0.7); margin-bottom: 8px;">Senha</label>
+        <div style="position: relative;">
+          <input type="password" id="login-senha" required placeholder="Digite sua senha" style="width: 100%; padding: 14px 46px 14px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); color: #fff; font-size: 14px; outline: none; transition: all 0.3s;" onfocus="this.style.borderColor='var(--ouro)'; this.style.boxShadow='0 0 10px rgba(200, 150, 62, 0.2)';" onblur="this.style.borderColor='rgba(255,255,255,0.15)'; this.style.boxShadow='none';">
+          <button type="button" id="toggle-senha-btn" onclick="toggleSenha()" style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); background: none; border: none; color: rgba(255,255,255,0.6); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; transition: color 0.3s; padding: 0;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.6)'" title="Mostrar senha">
+            👁️
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" style="width: 100%; padding: 16px; border: none; border-radius: 10px; background: linear-gradient(135deg, #c8963e 0%, #a27429 100%); color: #fff; font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: 1.5px; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 15px rgba(200, 150, 62, 0.3);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(200, 150, 62, 0.4)';" onmouseout="this.style.transform='none'; this.style.boxShadow='0 4px 15px rgba(200, 150, 62, 0.3)';">
+        Acessar Painel
+      </button>
+    </form>
+  </div>
+</div>
+
+<div id="app-container" style="display:none">
+
+<!-- SIDEBAR -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="brand">Pharmapele</div>
+    <div class="sub">Inteligência de Vendas</div>
+  </div>
+  <div class="nav">
+    <div class="nav-section">Visão Geral</div>
+    <div class="nav-item active" onclick="goTo('dashboard')">
+      <span class="icon">📊</span> Dashboard
+    </div>
+    <div class="nav-section">Dados</div>
+    <div class="nav-item" onclick="goTo('upload')">
+      <span class="icon">📤</span> Importar XMLs
+    </div>
+    <div class="nav-item" onclick="goTo('notas')">
+      <span class="icon">🧾</span> Notas Fiscais
+    </div>
+    <div class="nav-item" onclick="goTo('clientes')">
+      <span class="icon">👥</span> Clientes
+    </div>
+    <div class="nav-item" onclick="goTo('produtos')">
+      <span class="icon">🧴</span> Produtos
+    </div>
+    <div class="nav-section">Inteligência</div>
+    <div class="nav-item" onclick="goTo('recompra')">
+      <span class="icon">🔔</span> Alertas de Recompra
+    </div>
+    <div class="nav-item" onclick="goTo('inativos')">
+      <span class="icon">😴</span> Clientes Inativos
+    </div>
+    <div class="nav-item" onclick="goTo('whatsapp')">
+      <span class="icon">💬</span> WhatsApp
+    </div>
+    
+    <div class="nav-item" onclick="realizarLogout()" style="margin-top:24px;color:var(--alerta);background:rgba(192,57,43,0.08)">
+      <span class="icon">🚪</span> Sair
+    </div>
+  </div>
+  
+  <div class="sidebar-footer" style="padding:16px;border-top:1px solid rgba(255,255,255,.1);display:flex;flex-direction:column;gap:8px">
+    <div>
+      <div style="font-weight:600;color:#fff;margin-bottom:2px" id="sidebar-user-name">Carregando...</div>
+      <div style="font-size:10px;text-transform:uppercase;color:var(--ouro);font-weight:600;letter-spacing:0.5px" id="sidebar-user-level">Perfil</div>
+    </div>
+    <div style="font-size:11px;color:rgba(255,255,255,.4)">v1.1 · Pharmapele © 2026</div>
+  </div>
+</nav>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:16px">
+      <div class="topbar-title" id="topbar-title">Dashboard</div>
+      <!-- Seletor de Loja -->
+      <select id="seletor-loja" onchange="selecionarLoja(this.value)" style="padding:6px 12px;border-radius:8px;border:1.5px solid var(--cinza-2);font-family:inherit;font-size:13px;font-weight:500;background:var(--cinza-1);color:var(--texto);cursor:pointer;outline:none;transition:border-color .2s">
+        <option value="0">🏢 Todas as lojas</option>
+      </select>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-primary btn-sm" onclick="goTo('upload')">+ Importar XML</button>
+    </div>
+  </div>
+
+  <!-- ═══ DASHBOARD ═══ -->
+  <div class="page active" id="page-dashboard">
+    <div class="kpi-grid" id="kpi-grid">
+      <div class="loading"><div class="spinner"></div> Carregando...</div>
+    </div>
+    <div class="section-grid three">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Faturamento Mensal</span>
+        </div>
+        <div class="card-body">
+          <canvas id="chart-faturamento" height="220"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Receita por Categoria</span>
+        </div>
+        <div class="card-body">
+          <canvas id="chart-categorias" height="220"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="section-grid">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">🏆 Produtos Mais Vendidos</span>
+        </div>
+        <div class="card-body" id="top-produtos">
+          <div class="loading"><div class="spinner"></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">🔔 Próximos Alertas de Recompra</span>
+          <button class="btn btn-outline btn-sm" onclick="goTo('recompra')">Ver todos</button>
+        </div>
+        <div class="card-body" id="mini-alertas">
+          <div class="loading"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ UPLOAD ═══ -->
+  <div class="page" id="page-upload">
+    <div class="card" style="max-width:700px;margin:0 auto">
+      <div class="card-header">
+        <span class="card-title">📤 Importar Notas Fiscais (XML)</span>
+      </div>
+      <div class="card-body">
+        <div class="upload-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+          <div class="icon">📂</div>
+          <h3>Arraste os arquivos XML ou clique para selecionar</h3>
+          <p>Selecione um ou vários XMLs de NFC-e de uma vez</p>
+        </div>
+        <input type="file" id="file-input" multiple accept=".xml" style="display:none"/>
+        <div id="upload-result" class="upload-result" style="display:none"></div>
+        <div id="upload-loading" style="display:none" class="loading">
+          <div class="spinner"></div> Importando notas...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ NOTAS ═══ -->
+  <div class="page" id="page-notas">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🧾 Notas Fiscais Importadas</span>
+        <span id="total-notas" class="badge badge-cinza"></span>
+      </div>
+      <div class="card-body">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nº NF</th><th>Data</th><th>Loja</th><th>Cliente</th>
+                <th>Total</th><th>Pagamento</th>
+              </tr>
+            </thead>
+            <tbody id="tabela-notas">
+              <tr><td colspan="6" class="empty">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ CLIENTES ═══ -->
+  <div class="page" id="page-clientes">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">👥 Clientes</span>
+      </div>
+      <div class="card-body">
+        <input class="search-bar" id="busca-cliente" placeholder="🔍 Buscar por nome ou CPF..." oninput="buscarClientes(this.value)"/>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th><th>CPF</th><th>Telefone</th>
+                <th>Compras</th><th>Total Gasto</th><th>Última Compra</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="tabela-clientes">
+              <tr><td colspan="7" class="empty">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <!-- Modal cliente -->
+    <div id="modal-cliente" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;display:flex;align-items:center;justify-content:center">
+      <div style="background:#fff;border-radius:16px;width:min(700px,95vw);max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
+        <div style="padding:24px;border-bottom:1px solid var(--cinza-2);display:flex;justify-content:space-between;align-items:center">
+          <span style="font-family:'DM Serif Display',serif;font-size:20px" id="modal-nome"></span>
+          <button onclick="fecharModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--texto-leve)">✕</button>
+        </div>
+        <div id="modal-body" style="padding:24px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ PRODUTOS ═══ -->
+  <div class="page" id="page-produtos">
+    <div class="card">
+      <div class="card-header"><span class="card-title">🧴 Produtos</span></div>
+      <div class="card-body">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Produto</th><th>Categoria</th><th>Unidades Vendidas</th><th>Receita</th><th>Clientes</th></tr>
+            </thead>
+            <tbody id="tabela-produtos">
+              <tr><td colspan="5" class="empty">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ALERTAS RECOMPRA ═══ -->
+  <div class="page" id="page-recompra">
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <span class="card-title">🔔 Alertas de Recompra</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:13px;color:var(--texto-leve)">Janela:</span>
+          <select id="janela-dias" onchange="carregarAlertas()" class="btn btn-outline btn-sm" style="padding:6px 10px">
+            <option value="7">7 dias</option>
+            <option value="14">14 dias</option>
+            <option value="30">30 dias</option>
+          </select>
+        </div>
+      </div>
+      <div class="card-body">
+        <p style="font-size:13px;color:var(--texto-leve);margin-bottom:16px">
+          Clientes cujo produto estimado está próximo do fim, com base no histórico de compras.
+        </p>
+        <div id="lista-alertas"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ INATIVOS ═══ -->
+  <div class="page" id="page-inativos">
+    <div class="card">
+      <div class="card-header"><span class="card-title">😴 Clientes Inativos (60+ dias)</span></div>
+      <div class="card-body">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Cliente</th><th>Telefone</th><th>Dias sem comprar</th><th>Total Compras</th><th>Total Gasto</th></tr>
+            </thead>
+            <tbody id="tabela-inativos">
+              <tr><td colspan="5" class="empty">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ WHATSAPP ═══ -->
+  <div class="page" id="page-whatsapp">
+    <div style="max-width:700px">
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-header">
+          <span class="card-title">💬 Templates de Mensagem WhatsApp</span>
+        </div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--texto-leve);margin-bottom:20px">
+            Mensagens prontas para você copiar e enviar manualmente ou usar com automação futura.
+          </p>
+
+          <div style="margin-bottom:18px">
+            <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--brand)">🔔 Lembrete de Recompra</div>
+            <div class="wa-template" id="wa-recompra">
+Olá, <b>[NOME]</b>! 👋<br><br>
+Tudo bem? Passando para avisar que seu <b>[PRODUTO]</b> deve estar acabando por aí. 😊<br><br>
+Que tal renovar antes de faltar? Temos disponível aqui na Pharmapele com condições especiais para você!<br><br>
+📍 Nos encontre em: <i>[ENDEREÇO]</i><br>
+🛒 Ou peça pelo WhatsApp mesmo!
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="copiar('wa-recompra')">📋 Copiar template</button>
+          </div>
+
+          <div style="margin-bottom:18px">
+            <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--ouro)">😴 Recuperação de Inativo</div>
+            <div class="wa-template" id="wa-inativo">
+Oi, <b>[NOME]</b>! Sentimos sua falta por aqui 🥺<br><br>
+Faz um tempinho que não te vemos na Pharmapele. Temos novidades incríveis que você vai adorar!<br><br>
+✨ Produtos exclusivos manipulados<br>
+🎁 Condições especiais para quem volta<br><br>
+Bora marcar uma visita?
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="copiar('wa-inativo')">📋 Copiar template</button>
+          </div>
+
+          <div style="margin-bottom:18px">
+            <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--info)">🎂 Aniversário / Fidelidade</div>
+            <div class="wa-template" id="wa-fidelidade">
+Olá, <b>[NOME]</b>! 🎉<br><br>
+Você é uma de nossas clientes especiais e queremos agradecer pela confiança!<br><br>
+Como forma de reconhecimento, preparamos uma surpresa especial para você na sua próxima visita. 🎁<br><br>
+Até breve! 💙<br><em>Equipe Pharmapele</em>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="copiar('wa-fidelidade')">📋 Copiar template</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">📋 Lista de Contatos para Hoje</span></div>
+        <div class="card-body" id="contatos-hoje">
+          <div class="loading"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+</div><!-- /app-container -->
+
+<script>
+const API = '';
+let chartFat = null, chartCat = null;
+window.lojaIdAtual = 0; // 0 significa 'Todas as lojas'
+
+// ── Navegação ────────────────────────────────────────────
+const titles = {
+  dashboard: 'Dashboard',
+  upload: 'Importar XMLs',
+  notas: 'Notas Fiscais',
+  clientes: 'Clientes',
+  produtos: 'Produtos',
+  recompra: 'Alertas de Recompra',
+  inativos: 'Clientes Inativos',
+  whatsapp: 'Mensagens WhatsApp',
+};
+
+function goTo(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.getAttribute('onclick')?.includes("'" + page + "'")) n.classList.add('active');
+  });
+  document.getElementById('topbar-title').textContent = titles[page] || page;
+
+  const loaders = {
+    dashboard: carregarDashboard,
+    notas: carregarNotas,
+    clientes: () => carregarClientes(''),
+    produtos: carregarProdutos,
+    recompra: carregarAlertas,
+    inativos: carregarInativos,
+    whatsapp: carregarContatos,
+  };
+  if (loaders[page]) loaders[page]();
+}
+
+// ── Autenticação e Sessão ──────────────────────────────────
+function exibirLogin() {
+  document.getElementById('app-container').style.display = 'none';
+  document.getElementById('login-container').style.display = 'flex';
+  document.getElementById('login-erro').style.display = 'none';
+  document.getElementById('login-senha').value = '';
+}
+
+function exibirApp(usuario) {
+  document.getElementById('login-container').style.display = 'none';
+  document.getElementById('app-container').style.display = 'flex';
+  
+  if (usuario) {
+    document.getElementById('sidebar-user-name').textContent = usuario.nome;
+    
+    // Formatar nível de acesso amigável
+    let nivel = 'Operador';
+    if (usuario.nivel_acesso === 'master') nivel = 'Diretoria (Master)';
+    else if (usuario.nivel_acesso === 'franqueado') nivel = 'Franqueado';
+    
+    document.getElementById('sidebar-user-level').textContent = nivel;
+  }
+}
+
+async function realizarLogin(event) {
+  event.preventDefault();
+  const email = document.getElementById('login-email').value;
+  const senha = document.getElementById('login-senha').value;
+  const btn = event.target.querySelector('button[type="submit"]');
+  const errorEl = document.getElementById('login-erro');
+  const errorMsgEl = document.getElementById('login-erro-msg');
+  
+  btn.disabled = true;
+  btn.textContent = 'Autenticando...';
+  errorEl.style.display = 'none';
+  
+  try {
+    const res = await fetch(API + '/api/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ email, senha })
+    });
+    
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Falha ao autenticar');
+    }
+    
+    const data = await res.json();
+    localStorage.setItem('auth_token', data.access_token);
+    localStorage.setItem('auth_user', JSON.stringify(data.usuario));
+    
+    exibirApp(data.usuario);
+    await inicializar();
+  } catch (err) {
+    errorMsgEl.textContent = err.message;
+    errorEl.style.display = 'flex';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Acessar Painel';
+  }
+}
+
+function toggleSenha() {
+  const input = document.getElementById('login-senha');
+  const btn = document.getElementById('toggle-senha-btn');
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '🔒';
+    btn.title = 'Ocultar senha';
+  } else {
+    input.type = 'password';
+    btn.textContent = '👁️';
+    btn.title = 'Mostrar senha';
+  }
+}
+
+function realizarLogout() {
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('auth_user');
+  exibirLogin();
+}
+
+function checarSessao() {
+  const token = localStorage.getItem('auth_token');
+  const userStr = localStorage.getItem('auth_user');
+  
+  if (token && userStr) {
+    try {
+      const usuario = JSON.parse(userStr);
+      exibirApp(usuario);
+      inicializar();
+    } catch (e) {
+      realizarLogout();
+    }
+  } else {
+    exibirLogin();
+  }
+}
+
+// ── Fetch helper (Injeta automatico o token JWT e loja_id se houver) ──
+async function api(path) {
+  try {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      exibirLogin();
+      return null;
+    }
+
+    let url = API + path;
+    if (window.lojaIdAtual > 0) {
+      url += (path.includes('?') ? '&' : '?') + 'loja_id=' + window.lojaIdAtual;
+    }
+    
+    const r = await fetch(url, {
+      headers: {
+        'Authorization': 'Bearer ' + token
+      }
+    });
+
+    if (r.status === 401) {
+      realizarLogout();
+      return null;
+    }
+
+    if (!r.ok) throw new Error(r.statusText);
+    return r.json();
+  } catch(e) {
+    console.error(e);
+    return null;
+  }
+}
+
+// ── Anti-XSS Escaper ──────────────────────────────────────
+function escapeHTML(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatarCNPJ(cnpj) {
+  if (!cnpj) return '';
+  const limpo = String(cnpj).replace(/\D/g, '');
+  if (limpo.length !== 14) return cnpj;
+  return limpo.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+}
+
+// ── Lojas (Carregamento do Seletor) ──────────────────────
+async function carregarLojasNoSeletor() {
+  const lojas = await api('/api/lojas');
+  const sel = document.getElementById('seletor-loja');
+  if (!sel) return;
+  
+  sel.innerHTML = '<option value="0">🏢 Todas as lojas</option>';
+  if (lojas && lojas.length) {
+    lojas.forEach(l => {
+      const opt = document.createElement('option');
+      opt.value = l.id;
+      
+      // Tentar obter o bairro do endereço (ex: "Rua Exemplo, 123 - Bairro")
+      let bairro = '';
+      if (l.endereco && l.endereco.includes('-')) {
+        const partes = l.endereco.split('-');
+        bairro = partes[partes.length - 1].trim();
+      }
+      
+      const cnpjFormatado = formatarCNPJ(l.cnpj);
+      const prefixoCNPJ = cnpjFormatado ? ` - CNPJ: ${cnpjFormatado}` : '';
+      const sufixoBairro = bairro ? ` - ${bairro}` : '';
+      opt.textContent = `🏢 ${l.nome_fantasia}${prefixoCNPJ}${sufixoBairro} (${l.municipio}-${l.uf})`;
+      if (l.id === window.lojaIdAtual) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+}
+
+function selecionarLoja(id) {
+  window.lojaIdAtual = parseInt(id) || 0;
+  // Recarregar os dados da aba ativa
+  const pagAtiva = document.querySelector('.page.active').id.replace('page-', '');
+  goTo(pagAtiva);
+}
+
+// ── Formatters ───────────────────────────────────────────
+const BRL = v => v != null ? 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2}) : '—';
+const DT = v => v ? new Date(v).toLocaleDateString('pt-BR') : '—';
+const NUM = v => v != null ? Number(v).toLocaleString('pt-BR') : '—';
+
+// ── Dashboard ────────────────────────────────────────────
+async function carregarDashboard() {
+  const [dash, faturamento, categorias, produtos, alertas] = await Promise.all([
+    api('/api/dashboard'),
+    api('/api/faturamento-mensal'),
+    api('/api/vendas-por-categoria'),
+    api('/api/produtos-mais-vendidos?limit=5'),
+    api('/api/alertas-recompra?dias=7'),
+  ]);
+
+  if (!dash) {
+    document.getElementById('kpi-grid').innerHTML = '<div class="empty">⚠️ Não foi possível conectar ao servidor. Verifique se o backend está rodando.</div>';
+    return;
+  }
+
+  const g = dash.geral || {};
+  const m = dash.mes_atual || {};
+  document.getElementById('kpi-grid').innerHTML = `
+    <div class="kpi-card">
+      <div class="kpi-label">Faturamento Total</div>
+      <div class="kpi-value">${BRL(g.faturamento_total)}</div>
+      <div class="kpi-sub">${NUM(g.total_notas)} notas importadas</div>
+    </div>
+    <div class="kpi-card ouro">
+      <div class="kpi-label">Faturamento Este Mês</div>
+      <div class="kpi-value">${BRL(m.faturamento_mes)}</div>
+      <div class="kpi-sub">${NUM(m.notas_mes)} notas · ${NUM(m.clientes_mes)} clientes</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total de Clientes</div>
+      <div class="kpi-value">${NUM(g.total_clientes)}</div>
+      <div class="kpi-sub">Ticket médio ${BRL(g.ticket_medio)}</div>
+    </div>
+    <div class="kpi-card alerta">
+      <div class="kpi-label">Alertas de Recompra (7 dias)</div>
+      <div class="kpi-value">${dash.alertas_recompra ?? 0}</div>
+      <div class="kpi-sub">clientes para contactar</div>
+    </div>
+    <div class="kpi-card info">
+      <div class="kpi-label">Clientes Inativos (60d+)</div>
+      <div class="kpi-value">${dash.clientes_inativos ?? 0}</div>
+      <div class="kpi-sub">sem comprar há mais de 60 dias</div>
+    </div>
+  `;
+
+  // Chart faturamento
+  if (faturamento?.length) {
+    const ctx = document.getElementById('chart-faturamento').getContext('2d');
+    if (chartFat) chartFat.destroy();
+    chartFat = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: faturamento.map(r => r.mes),
+        datasets: [{
+          label: 'Faturamento',
+          data: faturamento.map(r => r.faturamento),
+          backgroundColor: '#207bc7',
+          borderRadius: 6,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { ticks: { callback: v => 'R$' + (v/1000).toFixed(0) + 'k' } }
+        }
+      }
+    });
+  } else {
+    if (chartFat) chartFat.destroy();
+  }
+
+  // Chart categorias
+  if (categorias?.length) {
+    const ctx2 = document.getElementById('chart-categorias').getContext('2d');
+    if (chartCat) chartCat.destroy();
+    const cores = ['#0b4a7d','#207bc7','#c8963e','#2471a3','#8e44ad','#c0392b','#16a085'];
+    chartCat = new Chart(ctx2, {
+      type: 'doughnut',
+      data: {
+        labels: categorias.map(r => r.categoria),
+        datasets: [{
+          data: categorias.map(r => r.receita),
+          backgroundColor: cores,
+          borderWidth: 2, borderColor: '#fff'
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }
+      }
+    });
+  } else {
+    if (chartCat) chartCat.destroy();
+  }
+
+  // Top produtos
+  const el = document.getElementById('top-produtos');
+  if (produtos?.length) {
+    const max = Math.max(...produtos.map(p => p.total_unidades));
+    el.innerHTML = produtos.map((p, i) => `
+      <div style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:13px;font-weight:500">${i+1}. ${escapeHTML(p.nome)}</span>
+          <span style="font-size:12px;color:var(--texto-leve)">${NUM(p.total_unidades)} un · ${BRL(p.receita)}</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${(p.total_unidades/max*100).toFixed(0)}%"></div>
+        </div>
+      </div>
+    `).join('');
+  } else {
+    el.innerHTML = '<div class="empty">Nenhum dado ainda. Importe XMLs para começar.</div>';
+  }
+
+  // Mini alertas
+  const ma = document.getElementById('mini-alertas');
+  if (alertas?.length) {
+    ma.innerHTML = alertas.slice(0,4).map(a => {
+      const dias = Math.round(Number(a.dias_restantes));
+      const cls = dias < 0 ? 'alerta-urgente' : dias <= 3 ? 'alerta-proximo' : 'alerta-ok';
+      const label = dias < 0 ? `${Math.abs(dias)}d atrasado` : dias === 0 ? 'hoje' : `em ${dias}d`;
+      return `
+        <div class="alerta-card ${cls}">
+          <div class="alerta-info">
+            <div class="nome">${escapeHTML(a.cliente)}</div>
+            <div class="produto">${escapeHTML(a.produto)}</div>
+          </div>
+          <div class="alerta-dias">
+            <div class="num" style="color:${dias<0?'var(--alerta)':dias<=3?'var(--ouro)':'var(--brand)'}">${label}</div>
+            <div class="label">recompra</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } else {
+    ma.innerHTML = '<div class="empty">Nenhum alerta nos próximos 7 dias.<br>Importe mais XMLs para calcular frequências.</div>';
+  }
+}
+
+// ── Upload ───────────────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  uploadFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
+
+async function uploadFiles(files) {
+  if (!files.length) return;
+  const resultEl = document.getElementById('upload-result');
+  const loadEl = document.getElementById('upload-loading');
+  resultEl.style.display = 'none';
+  loadEl.style.display = 'flex';
+
+  const form = new FormData();
+  for (const f of files) form.append('files', f);
+
+  try {
+    const token = localStorage.getItem('auth_token');
+    const r = await fetch(API + '/api/upload-xml', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      },
+      body: form
+    });
+    const results = await r.json();
+    loadEl.style.display = 'none';
+    resultEl.style.display = 'block';
+    
+    // Calcular estatísticas
+    const total = results.length;
+    const sucesso = results.filter(res => res.status === 'ok').length;
+    const duplicadas = results.filter(res => res.status === 'duplicada').length;
+    const erros = results.filter(res => res.status === 'erro').length;
+
+    // Determinar textos de status sem emojis
+    let statusClass = 'result-ok';
+    let tituloStatus = 'Importação concluída';
+    let subtituloStatus = 'O processamento das notas fiscais foi finalizado.';
+    let corDestaque = 'var(--brand)';
+
+    if (sucesso === total) {
+      statusClass = 'result-ok';
+      tituloStatus = 'Sucesso absoluto';
+      subtituloStatus = `Todas as ${total} notas fiscais foram processadas e importadas com sucesso.`;
+      corDestaque = 'var(--brand)';
+    } else if (erros > 0) {
+      statusClass = 'result-erro';
+      tituloStatus = 'Importação com ocorrências';
+      subtituloStatus = `O processamento foi finalizado, mas identificamos problemas em alguns arquivos.`;
+      corDestaque = 'var(--alerta)';
+    } else if (sucesso > 0) {
+      statusClass = 'result-ok';
+      tituloStatus = 'Processamento concluído';
+      subtituloStatus = `${sucesso} novas notas foram importadas.`;
+      corDestaque = 'var(--brand)';
+    } else if (duplicadas === total) {
+      statusClass = 'result-dup';
+      tituloStatus = 'Nenhuma nota nova importada';
+      subtituloStatus = 'Todos os arquivos enviados já constavam no banco de dados.';
+      corDestaque = 'var(--ouro)';
+    }
+
+    // Gerar lista detalhada de arquivos (sem emojis)
+    const itemsHTML = results.map(res => {
+      const cls = res.status === 'ok' ? 'result-ok' : res.status === 'duplicada' ? 'result-dup' : 'result-erro';
+      let statusTexto = '';
+      let corBullet = 'var(--brand)';
+      if (res.status === 'ok') {
+        statusTexto = 'Importado';
+        corBullet = 'var(--brand)';
+      } else if (res.status === 'duplicada') {
+        statusTexto = 'Duplicado';
+        corBullet = 'var(--ouro)';
+      } else {
+        statusTexto = 'Erro';
+        corBullet = 'var(--alerta)';
+      }
+      
+      let msg = '';
+      if (res.status === 'ok') {
+        msg = `${escapeHTML(res.cliente)} | Loja: ${escapeHTML(res.loja)}`;
+      } else if (res.status === 'duplicada') {
+        msg = 'Já importada anteriormente';
+      } else {
+        msg = `Erro: ${escapeHTML(res.detalhe)}`;
+      }
+
+      return `
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--cinza-2); font-size: 13px; background: #fff;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: ${corBullet};"></span>
+            <strong>${escapeHTML(res.arquivo)}</strong>
+          </div>
+          <span style="font-size: 12px; color: var(--texto-leve);">${msg}</span>
+        </div>
+      `;
+    }).join('');
+
+    // Renderizar o layout consolidado (sem emojis)
+    resultEl.innerHTML = `
+      <div style="background: #fff; border: 1px solid var(--cinza-2); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); text-align: left;">
+        
+        <!-- Cabeçalho de Status -->
+        <div style="border-left: 4px solid ${corDestaque}; padding-left: 14px; margin-bottom: 20px;">
+          <h4 style="font-size: 16px; font-weight: 600; color: var(--texto); margin: 0;">${tituloStatus}</h4>
+          <p style="font-size: 13px; color: var(--texto-leve); margin: 4px 0 0 0;">${subtituloStatus}</p>
+        </div>
+
+        <!-- Indicadores de métricas -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; margin-bottom: 20px;">
+          <div style="background: var(--creme); padding: 12px; border-radius: 8px; text-align: center; border: 1px solid var(--cinza-2);">
+            <div style="font-size: 10px; text-transform: uppercase; color: var(--texto-leve); letter-spacing: 0.5px;">Enviados</div>
+            <div style="font-size: 20px; font-weight: bold; color: var(--texto); margin-top: 4px;">${total}</div>
+          </div>
+          <div style="background: var(--brand-pale); padding: 12px; border-radius: 8px; text-align: center; border: 1px solid rgba(11, 74, 125, 0.15);">
+            <div style="font-size: 10px; text-transform: uppercase; color: var(--brand); letter-spacing: 0.5px; font-weight: 600;">Importados</div>
+            <div style="font-size: 20px; font-weight: bold; color: var(--brand); margin-top: 4px;">${sucesso}</div>
+          </div>
+          <div style="background: var(--ouro-pale); padding: 12px; border-radius: 8px; text-align: center; border: 1px solid rgba(200, 150, 62, 0.2);">
+            <div style="font-size: 10px; text-transform: uppercase; color: var(--ouro); letter-spacing: 0.5px; font-weight: 600;">Duplicados</div>
+            <div style="font-size: 20px; font-weight: bold; color: var(--ouro); margin-top: 4px;">${duplicadas}</div>
+          </div>
+          <div style="background: var(--alerta-pale); padding: 12px; border-radius: 8px; text-align: center; border: 1px solid rgba(192, 57, 43, 0.15);">
+            <div style="font-size: 10px; text-transform: uppercase; color: var(--alerta); letter-spacing: 0.5px; font-weight: 600;">Erros</div>
+            <div style="font-size: 20px; font-weight: bold; color: var(--alerta); margin-top: 4px;">${erros}</div>
+          </div>
+        </div>
+
+        <!-- Detalhes colapsáveis -->
+        <details style="border: 1px solid var(--cinza-2); border-radius: 8px; background: #fff;">
+          <summary style="padding: 12px 16px; font-size: 12px; font-weight: 600; color: var(--texto-leve); cursor: pointer; user-select: none; background: var(--cinza-1); border-radius: 7px; display: flex; align-items: center; justify-content: space-between; outline: none;">
+            <span>Ver detalhes por arquivo</span>
+            <span style="font-size: 11px; font-weight: normal; color: var(--texto-leve);">Clique para expandir</span>
+          </summary>
+          <div style="max-height: 250px; overflow-y: auto; border-top: 1px solid var(--cinza-2);">
+            ${itemsHTML}
+          </div>
+        </details>
+      </div>
+    `;
+    
+    // Atualizar seletor se novas lojas foram criadas
+    if (results.some(res => res.status === 'ok')) {
+      await carregarLojasNoSeletor();
+    }
+  } catch(e) {
+    loadEl.style.display = 'none';
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = `
+      <div style="background: #fff; border: 1px solid var(--alerta); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); border-left: 4px solid var(--alerta); text-align: left;">
+        <h4 style="font-size: 16px; font-weight: 600; color: var(--alerta); margin: 0;">Erro de conexão</h4>
+        <p style="font-size: 13px; color: var(--texto-leve); margin: 4px 0 0 0;">Não foi possível conectar ao servidor. Verifique se o backend está rodando na porta 8000.</p>
+      </div>
+    `;
+  }
+}
+
+// ── Notas ────────────────────────────────────────────────
+async function carregarNotas() {
+  const data = await api('/api/notas?limit=50');
+  const tbody = document.getElementById('tabela-notas');
+  if (!data?.notas?.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma nota importada ainda.</td></tr>';
+    return;
+  }
+  document.getElementById('total-notas').textContent = data.total + ' notas';
+  tbody.innerHTML = data.notas.map(n => `
+    <tr>
+      <td><strong>#${escapeHTML(n.numero_nf)}</strong></td>
+      <td>${DT(n.data_emissao)}</td>
+      <td><span class="badge badge-info">${escapeHTML(n.loja)}</span></td>
+      <td>${escapeHTML(n.cliente)}</td>
+      <td>${BRL(n.valor_total)}</td>
+      <td><span class="badge badge-cinza">${escapeHTML(n.forma_pagamento)}</span></td>
+    </tr>
+  `).join('');
+}
+
+// ── Clientes ─────────────────────────────────────────────
+async function carregarClientes(q) {
+  const data = await api('/api/clientes?q=' + encodeURIComponent(q));
+  const tbody = document.getElementById('tabela-clientes');
+  if (!data?.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">Nenhum cliente encontrado.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(c => `
+    <tr>
+      <td><strong>${escapeHTML(c.nome)}</strong></td>
+      <td style="font-family:monospace;font-size:12px">${formatCPF(c.cpf)}</td>
+      <td>${formatTel(c.telefone)}</td>
+      <td><span class="badge badge-brand">${c.total_compras ?? 0}</span></td>
+      <td>${BRL(c.total_gasto)}</td>
+      <td>${DT(c.ultima_compra)}</td>
+      <td><button class="btn btn-outline btn-sm" onclick="verCliente(${c.id},'${esc(c.nome)}')">Ver</button></td>
+    </tr>
+  `).join('');
+}
+
+let buscaTimer;
+function buscarClientes(v) {
+  clearTimeout(buscaTimer);
+  buscaTimer = setTimeout(() => carregarClientes(v), 300);
+}
+
+async function verCliente(id, nome) {
+  const modal = document.getElementById('modal-cliente');
+  document.getElementById('modal-nome').textContent = nome;
+  document.getElementById('modal-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  modal.style.display = 'flex';
+
+  const data = await api('/api/clientes/' + id + '/historico');
+  if (!data) {
+    document.getElementById('modal-body').innerHTML = '<div class="empty">Erro ao carregar.</div>';
+    return;
+  }
+
+  const c = data.cliente;
+  let html = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;font-size:13px">
+      <div>📱 ${formatTel(c.telefone) || '—'}</div>
+      <div>📋 ${formatCPF(c.cpf)}</div>
+      <div>🏙️ ${escapeHTML(c.municipio) || '—'} / ${escapeHTML(c.uf) || '—'}</div>
+    </div>
+  `;
+
+  if (data.recompras_previstas?.length) {
+    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--brand)">🔔 Recompras Previstas</div>`;
+    html += data.recompras_previstas.map(r => {
+      const dias = Math.round(Number(r.dias_restantes));
+      const cls = dias < 0 ? 'badge-alerta' : dias <= 7 ? 'badge-ouro' : 'badge-brand';
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--cinza-1)">
+          <span style="font-size:13px">${escapeHTML(r.produto)}</span>
+          <span class="badge ${cls}">${dias < 0 ? `${Math.abs(dias)}d atrasado` : `em ${dias}d`}</span>
+        </div>
+      `;
+    }).join('');
+    html += '<br>';
+  }
+
+  html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">🛒 Produtos Comprados</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Produto</th><th>Qtd</th><th>Total</th><th>Última</th></tr></thead>
+      <tbody>${data.produtos.map(p => `
+        <tr>
+          <td>${escapeHTML(p.nome)}</td>
+          <td>${NUM(p.total_unidades)}</td>
+          <td>${BRL(p.total_gasto)}</td>
+          <td>${DT(p.ultima_compra)}</td>
+        </tr>
+      `).join('')}</tbody>
+    </table></div>`;
+
+  document.getElementById('modal-body').innerHTML = html;
+}
+
+function fecharModal() {
+  document.getElementById('modal-cliente').style.display = 'none';
+}
+
+// ── Produtos ─────────────────────────────────────────────
+async function carregarProdutos() {
+  const data = await api('/api/produtos-mais-vendidos?limit=50');
+  const tbody = document.getElementById('tabela-produtos');
+  if (!data?.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">Nenhum produto encontrado.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(p => `
+    <tr>
+      <td><strong>${escapeHTML(p.nome)}</strong></td>
+      <td><span class="badge badge-cinza">${escapeHTML(p.categoria)}</span></td>
+      <td>${NUM(p.total_unidades)}</td>
+      <td>${BRL(p.receita)}</td>
+      <td>${NUM(p.clientes_distintos)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Alertas ──────────────────────────────────────────────
+async function carregarAlertas() {
+  const dias = document.getElementById('janela-dias')?.value || 7;
+  const data = await api('/api/alertas-recompra?dias=' + dias);
+  const el = document.getElementById('lista-alertas');
+  if (!data?.length) {
+    el.innerHTML = '<div class="empty">Nenhum alerta encontrado para essa janela.<br>São necessárias ao menos 2 compras do mesmo produto por cliente.</div>';
+    return;
+  }
+  el.innerHTML = data.map(a => {
+    const dias = Math.round(Number(a.dias_restantes));
+    const cls = dias < 0 ? 'alerta-urgente' : dias <= 3 ? 'alerta-proximo' : 'alerta-ok';
+    const label = dias < 0 ? `${Math.abs(dias)}d atrasado` : dias === 0 ? 'Hoje!' : `Em ${dias} dias`;
+    const cor = dias < 0 ? 'var(--alerta)' : dias <= 3 ? 'var(--ouro)' : 'var(--brand)';
+    return `
+      <div class="alerta-card ${cls}">
+        <div class="alerta-info">
+          <div class="nome">${escapeHTML(a.cliente)}</div>
+          <div class="produto">${escapeHTML(a.produto)} · Intervalo médio: ${a.intervalo_medio_dias}d</div>
+          <div class="produto">📱 ${formatTel(a.telefone)} · Última compra: ${DT(a.ultima_compra)}</div>
+        </div>
+        <div class="alerta-dias">
+          <div class="num" style="color:${cor}">${label}</div>
+          <div class="label">recompra estimada</div>
+          <a href="https://wa.me/55${limpaFone(a.telefone)}?text=${encodeURIComponent(`Olá, ${a.cliente}! Seu ${a.produto} deve estar acabando. Pode renovar por aqui! 😊`)}"
+            target="_blank" class="btn btn-primary btn-sm" style="margin-top:6px">💬 WhatsApp</a>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Inativos ─────────────────────────────────────────────
+async function carregarInativos() {
+  const data = await api('/api/clientes-inativos');
+  const tbody = document.getElementById('tabela-inativos');
+  if (!data?.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">Nenhum cliente inativo. 🎉</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(c => `
+    <tr>
+      <td><strong>${escapeHTML(c.nome)}</strong></td>
+      <td>${formatTel(c.telefone)}</td>
+      <td><span class="badge badge-alerta">${Math.round(c.dias_sem_comprar)} dias</span></td>
+      <td>${NUM(c.total_notas)}</td>
+      <td>${BRL(c.total_gasto)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── WhatsApp / Contatos ──────────────────────────────────
+async function carregarContatos() {
+  const alertas = await api('/api/alertas-recompra?dias=3');
+  const inativos = await api('/api/clientes-inativos');
+  const el = document.getElementById('contatos-hoje');
+
+  let html = '';
+  if (alertas?.length) {
+    html += `<div style="font-weight:600;margin-bottom:10px;color:var(--alerta)">🔔 Recompra Urgente (próximos 3 dias)</div>`;
+    html += alertas.slice(0,5).map(a => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--cinza-1)">
+        <div>
+          <div style="font-weight:500">${escapeHTML(a.cliente)}</div>
+          <div style="font-size:12px;color:var(--texto-leve)">${escapeHTML(a.produto)}</div>
+        </div>
+        <a href="https://wa.me/55${limpaFone(a.telefone)}?text=${encodeURIComponent(`Olá, ${a.cliente}! Seu ${a.produto} deve estar acabando. Podemos renovar por aqui! 💚`)}"
+          target="_blank" class="btn btn-primary btn-sm">💬 Enviar</a>
+      </div>
+    `).join('');
+  }
+
+  if (inativos?.length) {
+    html += `<div style="font-weight:600;margin:16px 0 10px;color:var(--ouro)">😴 Inativos para Recuperar</div>`;
+    html += inativos.slice(0,5).map(c => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--cinza-1)">
+        <div>
+          <div style="font-weight:500">${escapeHTML(c.nome)}</div>
+          <div style="font-size:12px;color:var(--texto-leve)">${Math.round(c.dias_sem_comprar)} dias sem comprar</div>
+        </div>
+        <a href="https://wa.me/55${limpaFone(c.telefone)}?text=${encodeURIComponent(`Oi, ${c.nome}! Sentimos sua falta na Pharmapele. Temos novidades incríveis te esperando! 💙`)}"
+          target="_blank" class="btn btn-ouro btn-sm">💬 Enviar</a>
+      </div>
+    `).join('');
+  }
+
+  el.innerHTML = html || '<div class="empty">Nenhum contato prioritário hoje. 🎉</div>';
+}
+
+// ── Utilitários ──────────────────────────────────────────
+function formatCPF(v) {
+  if (!v) return '—';
+  return v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+}
+function formatTel(v) {
+  if (!v) return '—';
+  const d = v.replace(/\D/g, '');
+  if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+  return v;
+}
+function limpaFone(v) { return v?.replace(/\D/g, '') || ''; }
+function esc(s) { return s?.replace(/'/g, "\\'") || ''; }
+
+function copiar(id) {
+  const el = document.getElementById(id);
+  const text = el.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    alert('Template copiado!');
+  });
+}
+
+// ── Init ─────────────────────────────────────────────────
+async function inicializar() {
+  await carregarLojasNoSeletor();
+  carregarDashboard();
+}
+
+checarSessao();
+</script>
+</body>
+</html>

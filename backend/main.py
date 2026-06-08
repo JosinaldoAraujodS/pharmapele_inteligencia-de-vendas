@@ -6,7 +6,9 @@ FastAPI + PostgreSQL (Multi-lojas & Conectividade Melhorada)
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+import csv
+import io
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import bcrypt
@@ -18,7 +20,7 @@ from contextlib import contextmanager
 import xml.etree.ElementTree as ET
 from datetime import datetime, date
 import os
-from typing import Optional
+from typing import Optional, List
 
 # ─── Security Config & Helpers ─────────────────────────────
 JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-pharmapele-key-123456")
@@ -219,6 +221,82 @@ def aplicar_filtro_segurança(current_user: dict, loja_id_param: Optional[int] =
                     else:
                         return []
                 return [loja_op] if loja_op else []
+
+
+def _require_master(current_user: dict) -> None:
+    if current_user["nivel_acesso"] != "master":
+        raise HTTPException(status_code=403, detail="Acesso restrito à matriz (master)")
+
+
+def _require_admin(current_user: dict) -> None:
+    if current_user["nivel_acesso"] not in ("master", "franqueado"):
+        raise HTTPException(status_code=403, detail="Acesso restrito à administração")
+
+
+def _lojas_gestao_ids(current_user: dict) -> list[int]:
+    return aplicar_filtro_segurança(current_user, None)
+
+
+def _validar_loja_gestao(current_user: dict, loja_id: Optional[int]) -> None:
+    if not loja_id:
+        raise HTTPException(status_code=400, detail="Loja é obrigatória para operador")
+    if loja_id not in _lojas_gestao_ids(current_user):
+        raise HTTPException(status_code=403, detail="Loja fora do seu escopo de gestão")
+
+
+def _validar_franquias_gestao(current_user: dict, franquia_ids: list[int]) -> None:
+    if current_user["nivel_acesso"] == "master":
+        return
+    permitidas = set(current_user.get("franquias") or [])
+    if not franquia_ids or not set(franquia_ids).issubset(permitidas):
+        raise HTTPException(status_code=403, detail="Franquia fora do seu escopo de gestão")
+
+
+def _usuario_pode_gestao(current_user: dict, usuario_id: int) -> dict:
+    row = query("""
+        SELECT u.id, u.nome, u.email, u.nivel_acesso, u.ativo, u.loja_id, u.franquia_id
+        FROM usuarios u
+        WHERE u.id = %s
+    """, (usuario_id,), fetchall=False)
+    if not row:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    if current_user["nivel_acesso"] == "master":
+        return dict(row)
+    if row["nivel_acesso"] != "operador":
+        raise HTTPException(status_code=403, detail="Franqueado só pode gerenciar operadores")
+    if row["loja_id"] not in _lojas_gestao_ids(current_user):
+        raise HTTPException(status_code=403, detail="Usuário fora do seu escopo de gestão")
+    return dict(row)
+
+
+def _sync_usuario_franquias(usuario_id: int, franquia_ids: list[int]) -> None:
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM usuario_franquias WHERE usuario_id = %s", (usuario_id,))
+            for fid in franquia_ids:
+                cur.execute(
+                    "INSERT INTO usuario_franquias (usuario_id, franquia_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    (usuario_id, fid),
+                )
+            cur.execute(
+                "UPDATE usuarios SET franquia_id = %s, atualizado_em = NOW() WHERE id = %s",
+                (franquia_ids[0] if franquia_ids else None, usuario_id),
+            )
+
+
+def clausula_periodo(data_inicio: Optional[str], data_fim: Optional[str], coluna: str = "data_emissao") -> tuple:
+    """Retorna fragmento SQL (AND ...) e parâmetros para filtro de período."""
+    partes = []
+    params = []
+    if data_inicio:
+        partes.append(f"{coluna} >= %s::date")
+        params.append(data_inicio)
+    if data_fim:
+        partes.append(f"{coluna} < %s::date + INTERVAL '1 day'")
+        params.append(data_fim)
+    if not partes:
+        return "", []
+    return " AND " + " AND ".join(partes), params
 
 
 # ─── Auto Migration ─────────────────────────────────────────
@@ -724,8 +802,13 @@ async def upload_xml(files: list[UploadFile] = File(...), current_user: dict = D
 
 
 @app.get("/api/dashboard")
-def dashboard(loja_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
-    """KPIs principais para o dashboard, filtráveis por lojas permitidas"""
+def dashboard(
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """KPIs principais para o dashboard, filtráveis por loja e período"""
     lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
     if not lojas_permitidas:
         return {
@@ -733,30 +816,40 @@ def dashboard(loja_id: Optional[int] = None, current_user: dict = Depends(get_cu
             "mes_atual": {},
             "alertas_recompra": 0,
             "clientes_inativos": 0,
+            "filtro_periodo": bool(data_inicio or data_fim),
         }
 
-    kpis_sql = """
+    periodo_sql, periodo_params = clausula_periodo(data_inicio, data_fim)
+
+    kpis_sql = f"""
         SELECT
             COUNT(DISTINCT id) AS total_notas,
             COUNT(DISTINCT cliente_id) AS total_clientes,
             ROUND(SUM(valor_total)::numeric, 2) AS faturamento_total,
+            ROUND(SUM(valor_produtos)::numeric, 2) AS valor_bruto,
             ROUND(AVG(valor_total)::numeric, 2) AS ticket_medio,
-            ROUND(SUM(valor_desconto)::numeric, 2) AS total_descontos
+            ROUND(SUM(valor_desconto)::numeric, 2) AS total_descontos,
+            COUNT(*) FILTER (WHERE valor_desconto > 0) AS notas_com_desconto,
+            ROUND(AVG(valor_desconto / NULLIF(valor_produtos, 0) * 100)
+                FILTER (WHERE valor_desconto > 0 AND valor_produtos > 0)::numeric, 1) AS media_pct_desconto_notas
         FROM notas_fiscais
-        WHERE loja_id = ANY(%s)
+        WHERE loja_id = ANY(%s){periodo_sql}
     """
-    kpis = query(kpis_sql, (lojas_permitidas,), fetchall=False)
+    kpis = query(kpis_sql, (lojas_permitidas, *periodo_params), fetchall=False)
 
-    mes_sql = """
-        SELECT
-            COUNT(DISTINCT id) AS notas_mes,
-            COUNT(DISTINCT cliente_id) AS clientes_mes,
-            ROUND(SUM(valor_total)::numeric, 2) AS faturamento_mes
-        FROM notas_fiscais
-        WHERE DATE_TRUNC('month', data_emissao) = DATE_TRUNC('month', NOW())
-          AND loja_id = ANY(%s)
-    """
-    mes_atual = query(mes_sql, (lojas_permitidas,), fetchall=False)
+    mes_atual = {}
+    if not (data_inicio or data_fim):
+        mes_sql = """
+            SELECT
+                COUNT(DISTINCT id) AS notas_mes,
+                COUNT(DISTINCT cliente_id) AS clientes_mes,
+                ROUND(SUM(valor_total)::numeric, 2) AS faturamento_mes,
+                ROUND(SUM(valor_desconto)::numeric, 2) AS descontos_mes
+            FROM notas_fiscais
+            WHERE DATE_TRUNC('month', data_emissao) = DATE_TRUNC('month', NOW())
+              AND loja_id = ANY(%s)
+        """
+        mes_atual = query(mes_sql, (lojas_permitidas,), fetchall=False)
 
     alertas_sql = """
         SELECT COUNT(*) AS total
@@ -769,11 +862,22 @@ def dashboard(loja_id: Optional[int] = None, current_user: dict = Depends(get_cu
     inativos_sql = "SELECT COUNT(*) AS total FROM vw_clientes_inativos WHERE loja_id = ANY(%s)"
     inativos = query(inativos_sql, (lojas_permitidas,), fetchall=False)
 
+    top_desc_sql = f"""
+        SELECT numero_nf, data_emissao, valor_produtos, valor_desconto, valor_total
+        FROM notas_fiscais
+        WHERE loja_id = ANY(%s) AND valor_desconto > 0{periodo_sql}
+        ORDER BY valor_desconto DESC
+        LIMIT 5
+    """
+    top_descontos = query(top_desc_sql, (lojas_permitidas, *periodo_params))
+
     return {
         "geral": dict(kpis) if kpis else {},
         "mes_atual": dict(mes_atual) if mes_atual else {},
         "alertas_recompra": dict(alertas)["total"] if alertas else 0,
         "clientes_inativos": dict(inativos)["total"] if inativos else 0,
+        "filtro_periodo": bool(data_inicio or data_fim),
+        "top_descontos": [dict(r) for r in top_descontos],
     }
 
 
@@ -789,6 +893,7 @@ def faturamento_mensal(loja_id: Optional[int] = None, current_user: dict = Depen
             TO_CHAR(DATE_TRUNC('month', data_emissao), 'MM/YYYY') AS mes,
             DATE_TRUNC('month', data_emissao) AS mes_dt,
             ROUND(SUM(valor_total)::numeric, 2) AS faturamento,
+            ROUND(SUM(valor_desconto)::numeric, 2) AS descontos,
             COUNT(DISTINCT id) AS notas,
             COUNT(DISTINCT cliente_id) AS clientes
         FROM notas_fiscais
@@ -800,14 +905,313 @@ def faturamento_mensal(loja_id: Optional[int] = None, current_user: dict = Depen
     return [dict(r) for r in rows]
 
 
-@app.get("/api/produtos-mais-vendidos")
-def produtos_mais_vendidos(limit: int = 10, loja_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
-    """Produtos mais vendidos, filtráveis por lojas permitidas"""
+ORDENACAO_PRODUTOS = {
+    "unidades": "total_unidades DESC",
+    "receita": "receita DESC",
+    "clientes": "clientes_distintos DESC",
+}
+
+
+def filtros_produtos_vendas(
+    q: str = "",
+    categoria: str = "",
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+) -> tuple:
+    partes = []
+    params = []
+    periodo_sql, periodo_params = clausula_periodo(data_inicio, data_fim, "nf.data_emissao")
+    if periodo_sql:
+        partes.append(periodo_sql.lstrip(" AND "))
+        params.extend(periodo_params)
+    if categoria:
+        partes.append("p.categoria = %s")
+        params.append(categoria)
+    if q:
+        partes.append("LOWER(p.nome) LIKE LOWER(%s)")
+        params.append(f"%{q}%")
+    if not partes:
+        return "", []
+    return " AND " + " AND ".join(partes), params
+
+
+def _sql_produtos_vendidos(ordenar: str) -> str:
+    order_col = ORDENACAO_PRODUTOS.get(ordenar, ORDENACAO_PRODUTOS["unidades"])
+    return f"""
+        SELECT
+            p.id, p.codigo, p.nome, p.categoria,
+            SUM(iv.quantidade) AS total_unidades,
+            ROUND(SUM(iv.valor_total)::numeric, 2) AS receita,
+            ROUND(AVG(iv.valor_unitario)::numeric, 2) AS preco_medio,
+            ROUND(AVG(NULLIF(iv.valor_desconto, 0))::numeric, 2) AS desconto_medio,
+            COUNT(DISTINCT nf.cliente_id) AS clientes_distintos,
+            false AS parado
+        FROM itens_venda iv
+        JOIN produtos p ON iv.produto_id = p.id
+        JOIN notas_fiscais nf ON iv.nota_id = nf.id
+        WHERE nf.loja_id = ANY(%s){{filtro_sql}}
+        GROUP BY p.id, p.codigo, p.nome, p.categoria
+        ORDER BY {order_col}
+    """
+
+
+@app.get("/api/produtos/categorias")
+def categorias_produtos(loja_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
     lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
     if not lojas_permitidas:
         return []
-        
-    sql = """
+    rows = query("""
+        SELECT DISTINCT categoria FROM produtos
+        WHERE loja_id = ANY(%s) AND categoria IS NOT NULL AND categoria <> ''
+        ORDER BY categoria
+    """, (lojas_permitidas,))
+    return [r["categoria"] for r in rows]
+
+
+@app.get("/api/produtos/export")
+def exportar_produtos_csv(
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    q: str = "",
+    categoria: str = "",
+    ordenar: str = "unidades",
+    parados: bool = False,
+    current_user: dict = Depends(get_current_user),
+):
+    lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
+    if not lojas_permitidas:
+        raise HTTPException(404, "Nenhum produto encontrado")
+
+    filtro_sql, filtro_params = filtros_produtos_vendas(q, categoria, data_inicio, data_fim)
+
+    if parados:
+        periodo_sql, periodo_params = clausula_periodo(data_inicio, data_fim, "nf.data_emissao")
+        sql = f"""
+            SELECT p.codigo, p.nome, p.categoria, p.preco_atual
+            FROM produtos p
+            WHERE p.loja_id = ANY(%s)
+            {"AND LOWER(p.nome) LIKE LOWER(%s)" if q else ""}
+            {"AND p.categoria = %s" if categoria else ""}
+            AND NOT EXISTS (
+                SELECT 1 FROM itens_venda iv
+                JOIN notas_fiscais nf ON iv.nota_id = nf.id
+                WHERE iv.produto_id = p.id AND nf.loja_id = ANY(%s){periodo_sql}
+            )
+            ORDER BY p.nome
+        """
+        params = [lojas_permitidas]
+        if q:
+            params.append(f"%{q}%")
+        if categoria:
+            params.append(categoria)
+        params.extend([lojas_permitidas, *periodo_params])
+        rows = query(sql, params)
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=";")
+        writer.writerow(["Codigo", "Produto", "Categoria", "Preco Atual"])
+        for r in rows:
+            writer.writerow([r["codigo"], r["nome"], r["categoria"], r["preco_atual"]])
+    else:
+        sql = _sql_produtos_vendidos(ordenar).format(filtro_sql=filtro_sql)
+        rows = query(sql, (lojas_permitidas, *filtro_params))
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=";")
+        writer.writerow([
+            "Codigo", "Produto", "Categoria", "Unidades",
+            "Receita", "Preco Medio", "Desconto Medio", "Clientes",
+        ])
+        for r in rows:
+            writer.writerow([
+                r["codigo"], r["nome"], r["categoria"],
+                r["total_unidades"], r["receita"], r["preco_medio"],
+                r["desconto_medio"] or 0, r["clientes_distintos"],
+            ])
+
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=produtos.csv"},
+    )
+
+
+@app.get("/api/produtos/{produto_id}")
+def detalhe_produto(
+    produto_id: int,
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
+    if not lojas_permitidas:
+        raise HTTPException(403, "Acesso negado")
+
+    produto = query(
+        "SELECT * FROM produtos WHERE id = %s AND loja_id = ANY(%s)",
+        (produto_id, lojas_permitidas),
+        fetchall=False,
+    )
+    if not produto:
+        raise HTTPException(404, "Produto não encontrado")
+
+    filtro_sql, filtro_params = filtros_produtos_vendas("", "", data_inicio, data_fim)
+
+    resumo = query(f"""
+        SELECT
+            SUM(iv.quantidade) AS total_unidades,
+            ROUND(SUM(iv.valor_total)::numeric, 2) AS receita,
+            ROUND(AVG(iv.valor_unitario)::numeric, 2) AS preco_medio,
+            ROUND(AVG(NULLIF(iv.valor_desconto, 0))::numeric, 2) AS desconto_medio,
+            COUNT(DISTINCT nf.cliente_id) AS clientes_distintos,
+            COUNT(DISTINCT nf.id) AS total_notas
+        FROM itens_venda iv
+        JOIN notas_fiscais nf ON iv.nota_id = nf.id
+        WHERE iv.produto_id = %s AND nf.loja_id = ANY(%s){filtro_sql}
+    """, (produto_id, lojas_permitidas, *filtro_params), fetchall=False)
+
+    clientes = query(f"""
+        SELECT COALESCE(c.nome, 'Consumidor Não Identificado') AS cliente,
+            c.id AS cliente_id,
+            SUM(iv.quantidade) AS total_unidades,
+            ROUND(SUM(iv.valor_total)::numeric, 2) AS total_gasto,
+            MAX(nf.data_emissao) AS ultima_compra
+        FROM itens_venda iv
+        JOIN notas_fiscais nf ON iv.nota_id = nf.id
+        LEFT JOIN clientes c ON nf.cliente_id = c.id
+        WHERE iv.produto_id = %s AND nf.loja_id = ANY(%s){filtro_sql}
+        GROUP BY c.id, c.nome
+        ORDER BY total_gasto DESC
+        LIMIT 20
+    """, (produto_id, lojas_permitidas, *filtro_params))
+
+    vendas = query(f"""
+        SELECT nf.numero_nf, nf.data_emissao,
+            COALESCE(c.nome, 'Consumidor Não Identificado') AS cliente,
+            iv.quantidade, iv.valor_unitario, iv.valor_desconto, iv.valor_total
+        FROM itens_venda iv
+        JOIN notas_fiscais nf ON iv.nota_id = nf.id
+        LEFT JOIN clientes c ON nf.cliente_id = c.id
+        WHERE iv.produto_id = %s AND nf.loja_id = ANY(%s){filtro_sql}
+        ORDER BY nf.data_emissao DESC
+        LIMIT 15
+    """, (produto_id, lojas_permitidas, *filtro_params))
+
+    return {
+        "produto": dict(produto),
+        "resumo": dict(resumo) if resumo else {},
+        "clientes": [dict(r) for r in clientes],
+        "vendas": [dict(r) for r in vendas],
+    }
+
+
+@app.get("/api/produtos")
+def listar_produtos(
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    q: str = "",
+    categoria: str = "",
+    ordenar: str = "unidades",
+    parados: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+):
+    """Lista produtos vendidos ou parados no período."""
+    lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
+    if not lojas_permitidas:
+        return {"produtos": [], "total": 0, "limit": limit, "offset": offset, "modo": "parados" if parados else "vendidos"}
+
+    filtro_sql, filtro_params = filtros_produtos_vendas(q, categoria, data_inicio, data_fim)
+
+    if parados:
+        periodo_sql, periodo_params = clausula_periodo(data_inicio, data_fim, "nf.data_emissao")
+        base_where = "p.loja_id = ANY(%s)"
+        params = [lojas_permitidas]
+        if q:
+            base_where += " AND LOWER(p.nome) LIKE LOWER(%s)"
+            params.append(f"%{q}%")
+        if categoria:
+            base_where += " AND p.categoria = %s"
+            params.append(categoria)
+
+        sql = f"""
+            SELECT p.id, p.codigo, p.nome, p.categoria, p.preco_atual, true AS parado,
+                NULL::numeric AS total_unidades, NULL::numeric AS receita,
+                NULL::numeric AS preco_medio, NULL::numeric AS desconto_medio,
+                0 AS clientes_distintos
+            FROM produtos p
+            WHERE {base_where}
+            AND NOT EXISTS (
+                SELECT 1 FROM itens_venda iv
+                JOIN notas_fiscais nf ON iv.nota_id = nf.id
+                WHERE iv.produto_id = p.id AND nf.loja_id = ANY(%s){periodo_sql}
+            )
+            ORDER BY p.nome
+            LIMIT %s OFFSET %s
+        """
+        params.extend([lojas_permitidas, *periodo_params, limit, offset])
+        rows = query(sql, params)
+
+        count_sql = f"""
+            SELECT COUNT(*) AS t FROM produtos p
+            WHERE {base_where}
+            AND NOT EXISTS (
+                SELECT 1 FROM itens_venda iv
+                JOIN notas_fiscais nf ON iv.nota_id = nf.id
+                WHERE iv.produto_id = p.id AND nf.loja_id = ANY(%s){periodo_sql}
+            )
+        """
+        count_params = [lojas_permitidas]
+        if q:
+            count_params.append(f"%{q}%")
+        if categoria:
+            count_params.append(categoria)
+        count_params.extend([lojas_permitidas, *periodo_params])
+        total = query(count_sql, count_params, fetchall=False)
+    else:
+        sql = _sql_produtos_vendidos(ordenar).format(filtro_sql=filtro_sql)
+        sql += " LIMIT %s OFFSET %s"
+        params = [lojas_permitidas, *filtro_params, limit, offset]
+        rows = query(sql, params)
+
+        count_sql = f"""
+            SELECT COUNT(*) AS t FROM (
+                SELECT p.id
+                FROM itens_venda iv
+                JOIN produtos p ON iv.produto_id = p.id
+                JOIN notas_fiscais nf ON iv.nota_id = nf.id
+                WHERE nf.loja_id = ANY(%s){filtro_sql}
+                GROUP BY p.id
+            ) sub
+        """
+        total = query(count_sql, (lojas_permitidas, *filtro_params), fetchall=False)
+
+    return {
+        "produtos": [dict(r) for r in rows],
+        "total": dict(total)["t"] if total else 0,
+        "limit": limit,
+        "offset": offset,
+        "modo": "parados" if parados else "vendidos",
+    }
+
+
+@app.get("/api/produtos-mais-vendidos")
+def produtos_mais_vendidos(
+    limit: int = 10,
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Produtos mais vendidos, filtráveis por loja e período"""
+    lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
+    if not lojas_permitidas:
+        return []
+
+    periodo_sql, periodo_params = clausula_periodo(data_inicio, data_fim, "nf.data_emissao")
+    sql = f"""
         SELECT
             p.nome,
             p.categoria,
@@ -817,26 +1221,50 @@ def produtos_mais_vendidos(limit: int = 10, loja_id: Optional[int] = None, curre
         FROM itens_venda iv
         JOIN produtos p ON iv.produto_id = p.id
         JOIN notas_fiscais nf ON iv.nota_id = nf.id
-        WHERE nf.loja_id = ANY(%s)
+        WHERE nf.loja_id = ANY(%s){periodo_sql}
         GROUP BY p.id, p.nome, p.categoria
         ORDER BY total_unidades DESC
         LIMIT %s
     """
-    rows = query(sql, (lojas_permitidas, limit))
+    rows = query(sql, (lojas_permitidas, *periodo_params, limit))
     return [dict(r) for r in rows]
 
 
 @app.get("/api/alertas-recompra")
-def alertas_recompra(dias: int = 7, loja_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
-    """Alertas de recompra baseados em histórico, filtrados por lojas permitidas"""
+def alertas_recompra(
+    dias: int = 7,
+    loja_id: Optional[int] = None,
+    q: str = "",
+    com_telefone: bool = False,
+    apenas_atrasados: bool = False,
+    current_user: dict = Depends(get_current_user),
+):
+    """Alertas de recompra por par cliente+produto, filtráveis por janela e busca."""
     lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
     if not lojas_permitidas:
-        return []
-        
-    sql = """
+        return {"alertas": [], "total": 0, "dias": dias}
+
+    partes = [
+        "proxima_compra_estimada BETWEEN NOW() - INTERVAL '3 days' AND NOW() + (INTERVAL '1 day' * %s)",
+        "loja_id = ANY(%s)",
+    ]
+    params: list = [dias, lojas_permitidas]
+
+    if q:
+        partes.append("(LOWER(cliente) LIKE LOWER(%s) OR LOWER(produto) LIKE LOWER(%s))")
+        params.extend([f"%{q}%", f"%{q}%"])
+    if com_telefone:
+        partes.append("telefone IS NOT NULL AND TRIM(telefone) <> ''")
+    if apenas_atrasados:
+        partes.append("proxima_compra_estimada < NOW()")
+
+    where_sql = " AND ".join(partes)
+    sql = f"""
         SELECT
+            cliente_id,
             cliente,
             telefone,
+            produto_id,
             produto,
             total_compras,
             ultima_compra,
@@ -844,53 +1272,186 @@ def alertas_recompra(dias: int = 7, loja_id: Optional[int] = None, current_user:
             proxima_compra_estimada,
             ROUND(EXTRACT(DAY FROM proxima_compra_estimada - NOW())) AS dias_restantes
         FROM vw_frequencia_recompra
-        WHERE proxima_compra_estimada BETWEEN NOW() - INTERVAL '3 days' AND NOW() + (INTERVAL '1 day' * %s)
-          AND loja_id = ANY(%s)
+        WHERE {where_sql}
         ORDER BY proxima_compra_estimada
     """
-    rows = query(sql, (dias, lojas_permitidas))
-    return [dict(r) for r in rows]
+    rows = query(sql, params)
+    alertas = [dict(r) for r in rows]
+    return {"alertas": alertas, "total": len(alertas), "dias": dias}
 
 
 @app.get("/api/clientes-inativos")
-def clientes_inativos(loja_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
-    """Clientes inativos por lojas permitidas"""
+def clientes_inativos(
+    loja_id: Optional[int] = None,
+    q: str = "",
+    com_telefone: bool = False,
+    min_dias: int = 60,
+    min_gasto: Optional[float] = None,
+    min_compras: int = 0,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+):
+    """Clientes sem compra há N+ dias, com produto favorito para abordagem comercial."""
     lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
     if not lojas_permitidas:
-        return []
-        
-    sql = "SELECT * FROM vw_clientes_inativos WHERE loja_id = ANY(%s) ORDER BY dias_sem_comprar DESC LIMIT 50"
-    rows = query(sql, (lojas_permitidas,))
-    return [dict(r) for r in rows]
+        return {"clientes": [], "total": 0, "limit": limit, "offset": offset, "min_dias": min_dias}
+
+    min_dias = max(30, min(min_dias, 730))
+
+    filtro_partes = []
+    filtro_params: list = []
+    if q:
+        filtro_partes.append("(LOWER(c.nome) LIKE LOWER(%s) OR c.telefone LIKE %s)")
+        like = f"%{q}%"
+        filtro_params.extend([like, like])
+    if com_telefone:
+        filtro_partes.append("c.telefone IS NOT NULL AND TRIM(c.telefone) <> ''")
+    filtro_sql = (" AND " + " AND ".join(filtro_partes)) if filtro_partes else ""
+
+    having_partes = []
+    having_params: list = []
+    if min_gasto is not None and min_gasto > 0:
+        having_partes.append("SUM(nf.valor_total) >= %s")
+        having_params.append(min_gasto)
+    if min_compras > 0:
+        having_partes.append("COUNT(DISTINCT nf.id) >= %s")
+        having_params.append(min_compras)
+    having_extra = (" AND " + " AND ".join(having_partes)) if having_partes else ""
+
+    base_sql = f"""
+        SELECT
+            c.id,
+            c.nome,
+            c.telefone,
+            nf.loja_id,
+            MAX(nf.data_emissao) AS ultima_compra,
+            EXTRACT(DAY FROM NOW() - MAX(nf.data_emissao))::int AS dias_sem_comprar,
+            COUNT(DISTINCT nf.id) AS total_notas,
+            ROUND(SUM(nf.valor_total)::numeric, 2) AS total_gasto,
+            (
+                SELECT p.nome
+                FROM notas_fiscais nf2
+                JOIN itens_venda iv ON iv.nota_id = nf2.id
+                JOIN produtos p ON iv.produto_id = p.id
+                WHERE nf2.cliente_id = c.id AND nf2.loja_id = nf.loja_id
+                ORDER BY nf2.data_emissao DESC, iv.valor_total DESC
+                LIMIT 1
+            ) AS produto_ultimo,
+            (
+                SELECT p.nome
+                FROM itens_venda iv
+                JOIN notas_fiscais nf2 ON iv.nota_id = nf2.id
+                JOIN produtos p ON iv.produto_id = p.id
+                WHERE nf2.cliente_id = c.id AND nf2.loja_id = nf.loja_id
+                GROUP BY p.id, p.nome
+                ORDER BY SUM(iv.valor_total) DESC
+                LIMIT 1
+            ) AS produto_favorito
+        FROM clientes c
+        JOIN notas_fiscais nf ON c.id = nf.cliente_id
+        WHERE nf.loja_id = ANY(%s){filtro_sql}
+        GROUP BY c.id, c.nome, c.telefone, nf.loja_id
+        HAVING MAX(nf.data_emissao) < NOW() - (INTERVAL '1 day' * %s){having_extra}
+    """
+
+    sql = base_sql + " ORDER BY dias_sem_comprar DESC LIMIT %s OFFSET %s"
+    params = [lojas_permitidas, *filtro_params, min_dias, *having_params, limit, offset]
+    rows = query(sql, params)
+
+    count_sql = f"SELECT COUNT(*) AS t FROM ({base_sql}) sub"
+    count_params = [lojas_permitidas, *filtro_params, min_dias, *having_params]
+    total = query(count_sql, count_params, fetchall=False)
+
+    return {
+        "clientes": [dict(r) for r in rows],
+        "total": dict(total)["t"] if total else 0,
+        "limit": limit,
+        "offset": offset,
+        "min_dias": min_dias,
+    }
 
 
 @app.get("/api/clientes")
-def listar_clientes(q: str = "", loja_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
-    """Lista clientes com consolidado de compras. Filtro por lojas permitidas."""
+def listar_clientes(
+    q: str = "",
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    min_compras: int = 0,
+    min_gasto: Optional[float] = None,
+    com_telefone: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+):
+    """Lista clientes com consolidado de compras e filtros."""
     lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
     if not lojas_permitidas:
-        return []
-        
-    sql = """
-        SELECT c.id, c.nome, c.cpf, c.telefone,
+        return {"clientes": [], "total": 0, "limit": limit, "offset": offset}
+
+    having_parts = []
+    having_params = []
+
+    periodo_sql, periodo_params = clausula_periodo(data_inicio, data_fim, "nf.data_emissao")
+    if min_compras > 0:
+        having_parts.append("COUNT(DISTINCT nf.id) >= %s")
+        having_params.append(min_compras)
+    if min_gasto is not None and min_gasto > 0:
+        having_parts.append("SUM(nf.valor_total) >= %s")
+        having_params.append(min_gasto)
+
+    having_sql = (" HAVING " + " AND ".join(having_parts)) if having_parts else ""
+
+    sql = f"""
+        SELECT c.id, c.nome, c.telefone, c.municipio, c.uf,
             COUNT(DISTINCT nf.id) AS total_compras,
             ROUND(SUM(nf.valor_total)::numeric, 2) AS total_gasto,
             MAX(nf.data_emissao) AS ultima_compra
         FROM clientes c
-        LEFT JOIN notas_fiscais nf ON c.id = nf.cliente_id
-        WHERE nf.loja_id = ANY(%s)
+        JOIN notas_fiscais nf ON c.id = nf.cliente_id
+        WHERE nf.loja_id = ANY(%s){periodo_sql}
     """
-    params = [lojas_permitidas]
-    
+    params = [lojas_permitidas, *periodo_params]
+
     if q:
-        sql += " AND (LOWER(c.nome) LIKE LOWER(%s) OR c.cpf LIKE %s)"
-        params.extend([f"%{q}%", f"%{q}%"])
-        
-    sql += " GROUP BY c.id, c.nome, c.cpf, c.telefone"
-    sql += " ORDER BY total_gasto DESC NULLS LAST LIMIT " + ("30" if q else "50")
-    
+        sql += " AND (LOWER(c.nome) LIKE LOWER(%s) OR c.telefone LIKE %s)"
+        like = f"%{q}%"
+        params.extend([like, like])
+    if com_telefone:
+        sql += " AND c.telefone IS NOT NULL AND c.telefone <> ''"
+
+    sql += f" GROUP BY c.id, c.nome, c.telefone, c.municipio, c.uf{having_sql}"
+    sql += " ORDER BY total_gasto DESC NULLS LAST LIMIT %s OFFSET %s"
+    params.extend(having_params)
+    params.extend([limit, offset])
+
     rows = query(sql, params)
-    return [dict(r) for r in rows]
+
+    count_sql = f"""
+        SELECT COUNT(*) AS t FROM (
+            SELECT c.id
+            FROM clientes c
+            JOIN notas_fiscais nf ON c.id = nf.cliente_id
+            WHERE nf.loja_id = ANY(%s){periodo_sql}
+    """
+    count_params = [lojas_permitidas, *periodo_params]
+    if q:
+        count_sql += " AND (LOWER(c.nome) LIKE LOWER(%s) OR c.telefone LIKE %s)"
+        like = f"%{q}%"
+        count_params.extend([like, like])
+    if com_telefone:
+        count_sql += " AND c.telefone IS NOT NULL AND c.telefone <> ''"
+    count_sql += f" GROUP BY c.id{having_sql}) sub"
+    count_params.extend(having_params)
+    total = query(count_sql, count_params, fetchall=False)
+
+    return {
+        "clientes": [dict(r) for r in rows],
+        "total": dict(total)["t"] if total else 0,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @app.get("/api/clientes/{cliente_id}/historico")
@@ -934,8 +1495,11 @@ def historico_cliente(cliente_id: int, loja_id: Optional[int] = None, current_us
     """
     recompras = query(recompras_sql, (cliente_id, lojas_permitidas))
 
+    cliente_pub = dict(cliente)
+    cliente_pub.pop("cpf", None)
+
     return {
-        "cliente": dict(cliente),
+        "cliente": cliente_pub,
         "notas": [dict(r) for r in notas],
         "produtos": [dict(r) for r in produtos_comprados],
         "recompras_previstas": [dict(r) for r in recompras],
@@ -943,45 +1507,1078 @@ def historico_cliente(cliente_id: int, loja_id: Optional[int] = None, current_us
 
 
 @app.get("/api/vendas-por-categoria")
-def vendas_categoria(loja_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
-    """Gráfico de pizza por categoria, filtrável por lojas permitidas"""
+def vendas_categoria(
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Gráfico de pizza por categoria, filtrável por loja e período"""
     lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
     if not lojas_permitidas:
         return []
-        
-    sql = """
+
+    periodo_sql, periodo_params = clausula_periodo(data_inicio, data_fim, "nf.data_emissao")
+    sql = f"""
         SELECT p.categoria,
             ROUND(SUM(iv.valor_total)::numeric, 2) AS receita,
             SUM(iv.quantidade) AS unidades
         FROM itens_venda iv
         JOIN produtos p ON iv.produto_id = p.id
         JOIN notas_fiscais nf ON iv.nota_id = nf.id
-        WHERE nf.loja_id = ANY(%s)
+        WHERE nf.loja_id = ANY(%s){periodo_sql}
         GROUP BY p.categoria ORDER BY receita DESC
     """
-    rows = query(sql, (lojas_permitidas,))
+    rows = query(sql, (lojas_permitidas, *periodo_params))
     return [dict(r) for r in rows]
 
 
-@app.get("/api/notas")
-def listar_notas(limit: int = 20, offset: int = 0, loja_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
-    """Lista as notas fiscais importadas com indicação de loja de origem, filtrada por lojas permitidas"""
+@app.get("/api/vendas-por-pagamento")
+def vendas_pagamento(
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Distribuição de vendas por forma de pagamento"""
     lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
     if not lojas_permitidas:
-        return {"notas": [], "total": 0}
-        
-    sql = """
-        SELECT nf.numero_nf, nf.data_emissao, COALESCE(c.nome, 'Consumidor Não Identificado') AS cliente,
-            nf.valor_total, nf.forma_pagamento, nf.xml_filename, l.nome_fantasia AS loja
+        return []
+
+    periodo_sql, periodo_params = clausula_periodo(data_inicio, data_fim)
+    sql = f"""
+        SELECT
+            COALESCE(NULLIF(forma_pagamento, ''), 'Não informado') AS forma_pagamento,
+            COUNT(*) AS notas,
+            ROUND(SUM(valor_total)::numeric, 2) AS receita
+        FROM notas_fiscais
+        WHERE loja_id = ANY(%s){periodo_sql}
+        GROUP BY forma_pagamento
+        ORDER BY receita DESC
+    """
+    rows = query(sql, (lojas_permitidas, *periodo_params))
+    return [dict(r) for r in rows]
+
+
+def filtros_notas_sql(
+    q: str = "",
+    forma_pagamento: str = "",
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+) -> tuple:
+    """Retorna fragmento SQL (AND ...) e parâmetros para filtros de notas."""
+    partes = []
+    params = []
+    periodo_sql, periodo_params = clausula_periodo(data_inicio, data_fim, "nf.data_emissao")
+    if periodo_sql:
+        partes.append(periodo_sql.lstrip(" AND "))
+        params.extend(periodo_params)
+    if forma_pagamento:
+        partes.append("nf.forma_pagamento = %s")
+        params.append(forma_pagamento)
+    if q:
+        partes.append(
+            "(nf.numero_nf ILIKE %s OR LOWER(COALESCE(c.nome, '')) LIKE LOWER(%s) OR COALESCE(c.cpf, '') LIKE %s)"
+        )
+        like = f"%{q}%"
+        params.extend([like, like, like])
+    if not partes:
+        return "", []
+    return " AND " + " AND ".join(partes), params
+
+
+@app.get("/api/notas/formas-pagamento")
+def formas_pagamento_notas(loja_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
+    """Lista formas de pagamento distintas para filtro"""
+    lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
+    if not lojas_permitidas:
+        return []
+    rows = query("""
+        SELECT DISTINCT forma_pagamento
+        FROM notas_fiscais
+        WHERE loja_id = ANY(%s) AND forma_pagamento IS NOT NULL AND forma_pagamento <> ''
+        ORDER BY forma_pagamento
+    """, (lojas_permitidas,))
+    return [r["forma_pagamento"] for r in rows]
+
+
+@app.get("/api/notas/export")
+def exportar_notas_csv(
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    q: str = "",
+    forma_pagamento: str = "",
+    current_user: dict = Depends(get_current_user),
+):
+    """Exporta notas filtradas em CSV"""
+    lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
+    if not lojas_permitidas:
+        raise HTTPException(404, "Nenhuma nota encontrada")
+
+    filtro_sql, filtro_params = filtros_notas_sql(q, forma_pagamento, data_inicio, data_fim)
+    sql = f"""
+        SELECT nf.numero_nf, nf.data_emissao, l.nome_fantasia AS loja,
+            COALESCE(c.nome, 'Consumidor Não Identificado') AS cliente,
+            c.cpf, nf.valor_produtos, nf.valor_desconto, nf.valor_total,
+            nf.forma_pagamento, nf.chave_nfe
         FROM notas_fiscais nf
         LEFT JOIN clientes c ON nf.cliente_id = c.id
         JOIN lojas l ON nf.loja_id = l.id
-        WHERE nf.loja_id = ANY(%s)
+        WHERE nf.loja_id = ANY(%s){filtro_sql}
+        ORDER BY nf.data_emissao DESC
+    """
+    rows = query(sql, (lojas_permitidas, *filtro_params))
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow([
+        "Numero NF", "Data Emissao", "Loja", "Cliente", "CPF",
+        "Valor Bruto", "Desconto", "Valor Total", "Forma Pagamento", "Chave NFe",
+    ])
+    for r in rows:
+        writer.writerow([
+            r["numero_nf"],
+            r["data_emissao"].strftime("%d/%m/%Y %H:%M") if r["data_emissao"] else "",
+            r["loja"],
+            r["cliente"],
+            r["cpf"] or "",
+            r["valor_produtos"],
+            r["valor_desconto"],
+            r["valor_total"],
+            r["forma_pagamento"],
+            r["chave_nfe"],
+        ])
+
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=notas_fiscais.csv"},
+    )
+
+
+@app.get("/api/notas/{nota_id}")
+def detalhe_nota(nota_id: int, current_user: dict = Depends(get_current_user)):
+    """Detalhe de uma nota fiscal com itens"""
+    lojas_permitidas = aplicar_filtro_segurança(current_user)
+    if not lojas_permitidas:
+        raise HTTPException(403, "Acesso negado")
+
+    nota = query("""
+        SELECT nf.id, nf.numero_nf, nf.serie, nf.chave_nfe, nf.data_emissao,
+            nf.valor_produtos, nf.valor_desconto, nf.valor_total, nf.forma_pagamento,
+            nf.xml_filename, nf.cliente_id,
+            COALESCE(c.nome, 'Consumidor Não Identificado') AS cliente,
+            c.cpf, c.telefone,
+            l.nome_fantasia AS loja
+        FROM notas_fiscais nf
+        LEFT JOIN clientes c ON nf.cliente_id = c.id
+        JOIN lojas l ON nf.loja_id = l.id
+        WHERE nf.id = %s AND nf.loja_id = ANY(%s)
+    """, (nota_id, lojas_permitidas), fetchall=False)
+
+    if not nota:
+        raise HTTPException(404, "Nota não encontrada")
+
+    itens = query("""
+        SELECT p.nome, p.categoria, iv.quantidade, iv.valor_unitario,
+            iv.valor_desconto, iv.valor_total
+        FROM itens_venda iv
+        JOIN produtos p ON iv.produto_id = p.id
+        WHERE iv.nota_id = %s
+        ORDER BY iv.valor_total DESC
+    """, (nota_id,))
+
+    return {"nota": dict(nota), "itens": [dict(i) for i in itens]}
+
+
+@app.get("/api/notas")
+def listar_notas(
+    limit: int = 25,
+    offset: int = 0,
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    q: str = "",
+    forma_pagamento: str = "",
+    current_user: dict = Depends(get_current_user),
+):
+    """Lista notas fiscais importadas com filtros e paginação"""
+    lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
+    if not lojas_permitidas:
+        return {"notas": [], "total": 0, "limit": limit, "offset": offset}
+
+    filtro_sql, filtro_params = filtros_notas_sql(q, forma_pagamento, data_inicio, data_fim)
+    sql = f"""
+        SELECT nf.id, nf.numero_nf, nf.data_emissao, nf.cliente_id,
+            COALESCE(c.nome, 'Consumidor Não Identificado') AS cliente,
+            nf.valor_produtos, nf.valor_desconto, nf.valor_total,
+            nf.forma_pagamento, nf.xml_filename, l.nome_fantasia AS loja
+        FROM notas_fiscais nf
+        LEFT JOIN clientes c ON nf.cliente_id = c.id
+        JOIN lojas l ON nf.loja_id = l.id
+        WHERE nf.loja_id = ANY(%s){filtro_sql}
         ORDER BY nf.data_emissao DESC LIMIT %s OFFSET %s
     """
-    rows = query(sql, (lojas_permitidas, limit, offset))
-    
-    count_sql = "SELECT COUNT(*) AS t FROM notas_fiscais WHERE loja_id = ANY(%s)"
-    total = query(count_sql, (lojas_permitidas,), fetchall=False)
-    
-    return {"notas": [dict(r) for r in rows], "total": dict(total)["t"]}
+    rows = query(sql, (lojas_permitidas, *filtro_params, limit, offset))
+
+    count_sql = f"""
+        SELECT COUNT(*) AS t
+        FROM notas_fiscais nf
+        LEFT JOIN clientes c ON nf.cliente_id = c.id
+        WHERE nf.loja_id = ANY(%s){filtro_sql}
+    """
+    total = query(count_sql, (lojas_permitidas, *filtro_params), fetchall=False)
+
+    return {
+        "notas": [dict(r) for r in rows],
+        "total": dict(total)["t"],
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+def _params_analises(loja_id, data_inicio, data_fim, current_user):
+    lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
+    periodo_sql, periodo_params = clausula_periodo(data_inicio, data_fim, "nf.data_emissao")
+    periodo_nf_sql, periodo_nf_params = clausula_periodo(data_inicio, data_fim, "data_emissao")
+    multi_loja = len(lojas_permitidas) > 1
+    return lojas_permitidas, periodo_sql, periodo_params, periodo_nf_sql, periodo_nf_params, multi_loja
+
+
+def _comportamento_vazio():
+    return {
+        "clientes": {
+            "novos": {"notas": 0, "clientes": 0, "faturamento": 0, "ticket_medio": 0, "pct_notas": 0, "pct_faturamento": 0},
+            "recorrentes": {"notas": 0, "clientes": 0, "faturamento": 0, "ticket_medio": 0, "pct_notas": 0, "pct_faturamento": 0},
+            "sem_identificacao": {"notas": 0, "faturamento": 0, "ticket_medio": 0, "pct_notas": 0, "pct_faturamento": 0},
+            "total_notas": 0,
+        },
+        "ticket_pagamento": [],
+        "ticket_categoria": [],
+        "ticket_loja": [],
+    }
+
+
+def _descontos_analise_vazio():
+    return {
+        "resumo": {"total_desconto": 0, "valor_bruto": 0, "pct_bruto": 0, "notas_com_desconto": 0, "pct_notas": 0},
+        "por_categoria": [],
+        "por_produto": [],
+    }
+
+
+def _montar_clientes_novos_rec(rows, sem_id_row):
+    base = {
+        "novos": {"notas": 0, "clientes": 0, "faturamento": 0.0, "ticket_medio": 0.0, "pct_notas": 0.0, "pct_faturamento": 0.0},
+        "recorrentes": {"notas": 0, "clientes": 0, "faturamento": 0.0, "ticket_medio": 0.0, "pct_notas": 0.0, "pct_faturamento": 0.0},
+        "sem_identificacao": {"notas": 0, "faturamento": 0.0, "ticket_medio": 0.0, "pct_notas": 0.0, "pct_faturamento": 0.0},
+        "total_notas": 0,
+    }
+    for r in rows:
+        key = r["tipo"]
+        base[key] = {
+            "notas": int(r["notas"] or 0),
+            "clientes": int(r["clientes"] or 0),
+            "faturamento": float(r["faturamento"] or 0),
+            "ticket_medio": float(r["ticket_medio"] or 0),
+            "pct_notas": 0.0,
+            "pct_faturamento": 0.0,
+        }
+    if sem_id_row:
+        base["sem_identificacao"] = {
+            "notas": int(sem_id_row["notas"] or 0),
+            "faturamento": float(sem_id_row["faturamento"] or 0),
+            "ticket_medio": float(sem_id_row["ticket_medio"] or 0),
+            "pct_notas": 0.0,
+            "pct_faturamento": 0.0,
+        }
+    total_notas = base["novos"]["notas"] + base["recorrentes"]["notas"] + base["sem_identificacao"]["notas"]
+    total_fat = base["novos"]["faturamento"] + base["recorrentes"]["faturamento"] + base["sem_identificacao"]["faturamento"]
+    base["total_notas"] = total_notas
+    for bloco in ("novos", "recorrentes", "sem_identificacao"):
+        if total_notas:
+            base[bloco]["pct_notas"] = round(100.0 * base[bloco]["notas"] / total_notas, 1)
+        if total_fat:
+            base[bloco]["pct_faturamento"] = round(100.0 * base[bloco]["faturamento"] / total_fat, 1)
+    return base
+
+
+@app.get("/api/analises")
+def analises_fase1(
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Análises: sazonalidade, top lojas, produtos por loja e comportamento (Fase 3)."""
+    lojas_permitidas, periodo_sql, periodo_params, periodo_nf_sql, periodo_nf_params, multi_loja = _params_analises(
+        loja_id, data_inicio, data_fim, current_user
+    )
+    if not lojas_permitidas:
+        return {
+            "multi_loja": False,
+            "total_lojas": 0,
+            "sazonalidade": {"dia_semana": [], "dia_mes": [], "hora": [], "picos": {}},
+            "top_lojas": [],
+            "top_produtos_por_loja": [],
+            "comportamento": _comportamento_vazio(),
+            "descontos_analise": _descontos_analise_vazio(),
+            "vendas_por_cidade": [],
+        }
+
+    dia_semana = query(f"""
+        SELECT
+            CASE EXTRACT(DOW FROM data_emissao)::int WHEN 0 THEN 7
+                ELSE EXTRACT(DOW FROM data_emissao)::int END AS ordem,
+            CASE EXTRACT(DOW FROM data_emissao)::int
+                WHEN 0 THEN 'Dom' WHEN 1 THEN 'Seg' WHEN 2 THEN 'Ter' WHEN 3 THEN 'Qua'
+                WHEN 4 THEN 'Qui' WHEN 5 THEN 'Sex' ELSE 'Sáb' END AS label,
+            COUNT(*) AS notas,
+            ROUND(SUM(valor_total)::numeric, 2) AS faturamento
+        FROM notas_fiscais
+        WHERE loja_id = ANY(%s){periodo_nf_sql}
+        GROUP BY EXTRACT(DOW FROM data_emissao)
+        ORDER BY ordem
+    """, (lojas_permitidas, *periodo_nf_params))
+
+    dia_mes = query(f"""
+        SELECT
+            EXTRACT(DAY FROM data_emissao)::int AS dia,
+            COUNT(*) AS notas,
+            ROUND(SUM(valor_total)::numeric, 2) AS faturamento
+        FROM notas_fiscais
+        WHERE loja_id = ANY(%s){periodo_nf_sql}
+        GROUP BY EXTRACT(DAY FROM data_emissao)
+        ORDER BY dia
+    """, (lojas_permitidas, *periodo_nf_params))
+
+    hora = query(f"""
+        SELECT
+            EXTRACT(HOUR FROM data_emissao)::int AS hora,
+            COUNT(*) AS notas,
+            ROUND(SUM(valor_total)::numeric, 2) AS faturamento
+        FROM notas_fiscais
+        WHERE loja_id = ANY(%s){periodo_nf_sql}
+        GROUP BY EXTRACT(HOUR FROM data_emissao)
+        ORDER BY hora
+    """, (lojas_permitidas, *periodo_nf_params))
+
+    picos = {}
+    if dia_semana:
+        p = max(dia_semana, key=lambda r: float(r["faturamento"] or 0))
+        picos["dia_semana"] = {"label": p["label"], "faturamento": float(p["faturamento"] or 0)}
+    if dia_mes:
+        p = max(dia_mes, key=lambda r: float(r["faturamento"] or 0))
+        picos["dia_mes"] = {"dia": int(p["dia"]), "faturamento": float(p["faturamento"] or 0)}
+    if hora:
+        p = max(hora, key=lambda r: float(r["faturamento"] or 0))
+        picos["hora"] = {"hora": int(p["hora"]), "faturamento": float(p["faturamento"] or 0)}
+
+    top_lojas = []
+    if multi_loja:
+        top_lojas = query(f"""
+            SELECT
+                l.id AS loja_id,
+                l.nome_fantasia AS loja,
+                COALESCE(f.nome, '—') AS franquia,
+                COUNT(DISTINCT nf.id) AS notas,
+                ROUND(SUM(nf.valor_total)::numeric, 2) AS faturamento,
+                ROUND(AVG(nf.valor_total)::numeric, 2) AS ticket_medio,
+                COUNT(DISTINCT nf.cliente_id) AS clientes
+            FROM notas_fiscais nf
+            JOIN lojas l ON nf.loja_id = l.id
+            LEFT JOIN franquias f ON l.franquia_id = f.id
+            WHERE nf.loja_id = ANY(%s){periodo_nf_sql}
+            GROUP BY l.id, l.nome_fantasia, f.nome
+            ORDER BY faturamento DESC
+            LIMIT 20
+        """, (lojas_permitidas, *periodo_nf_params))
+
+    top_produtos_por_loja = query(f"""
+        WITH ranked AS (
+            SELECT
+                l.id AS loja_id,
+                l.nome_fantasia AS loja,
+                p.nome AS produto,
+                p.categoria,
+                SUM(iv.quantidade) AS unidades,
+                ROUND(SUM(iv.valor_total)::numeric, 2) AS receita,
+                ROW_NUMBER() OVER (
+                    PARTITION BY l.id ORDER BY SUM(iv.valor_total) DESC
+                ) AS posicao
+            FROM itens_venda iv
+            JOIN notas_fiscais nf ON iv.nota_id = nf.id
+            JOIN produtos p ON iv.produto_id = p.id
+            JOIN lojas l ON nf.loja_id = l.id
+            WHERE nf.loja_id = ANY(%s){periodo_sql}
+            GROUP BY l.id, l.nome_fantasia, p.id, p.nome, p.categoria
+        )
+        SELECT loja_id, loja, produto, categoria, unidades, receita, posicao
+        FROM ranked
+        WHERE posicao <= 5
+        ORDER BY loja, posicao
+    """, (lojas_permitidas, *periodo_params))
+
+    clientes_tipos = query(f"""
+        WITH notas_escopo AS (
+            SELECT
+                nf.id,
+                nf.cliente_id,
+                nf.valor_total,
+                nf.data_emissao,
+                ROW_NUMBER() OVER (
+                    PARTITION BY nf.cliente_id
+                    ORDER BY nf.data_emissao, nf.id
+                ) AS ordem_compra
+            FROM notas_fiscais nf
+            WHERE nf.loja_id = ANY(%s) AND nf.cliente_id IS NOT NULL
+        )
+        SELECT
+            CASE WHEN ordem_compra = 1 THEN 'novos' ELSE 'recorrentes' END AS tipo,
+            COUNT(*) AS notas,
+            COUNT(DISTINCT cliente_id) AS clientes,
+            ROUND(SUM(valor_total)::numeric, 2) AS faturamento,
+            ROUND(AVG(valor_total)::numeric, 2) AS ticket_medio
+        FROM notas_escopo
+        WHERE 1=1{periodo_nf_sql}
+        GROUP BY 1
+    """, (lojas_permitidas, *periodo_nf_params))
+
+    sem_identificacao = query(f"""
+        SELECT
+            COUNT(*) AS notas,
+            ROUND(SUM(valor_total)::numeric, 2) AS faturamento,
+            ROUND(AVG(valor_total)::numeric, 2) AS ticket_medio
+        FROM notas_fiscais nf
+        WHERE nf.loja_id = ANY(%s){periodo_nf_sql} AND nf.cliente_id IS NULL
+    """, (lojas_permitidas, *periodo_nf_params), fetchall=False)
+
+    ticket_pagamento = query(f"""
+        SELECT
+            COALESCE(NULLIF(TRIM(forma_pagamento), ''), 'Não informado') AS pagamento,
+            COUNT(*) AS notas,
+            ROUND(SUM(valor_total)::numeric, 2) AS faturamento,
+            ROUND(AVG(valor_total)::numeric, 2) AS ticket_medio
+        FROM notas_fiscais nf
+        WHERE nf.loja_id = ANY(%s){periodo_nf_sql}
+        GROUP BY 1
+        ORDER BY faturamento DESC
+        LIMIT 12
+    """, (lojas_permitidas, *periodo_nf_params))
+
+    ticket_categoria = query(f"""
+        SELECT
+            COALESCE(NULLIF(TRIM(p.categoria), ''), 'Sem categoria') AS categoria,
+            COUNT(DISTINCT nf.id) AS notas,
+            ROUND(SUM(iv.valor_total)::numeric, 2) AS receita,
+            ROUND(SUM(iv.valor_total)::numeric / NULLIF(COUNT(DISTINCT nf.id), 0), 2) AS ticket_medio
+        FROM itens_venda iv
+        JOIN notas_fiscais nf ON iv.nota_id = nf.id
+        JOIN produtos p ON iv.produto_id = p.id
+        WHERE nf.loja_id = ANY(%s){periodo_sql}
+        GROUP BY 1
+        HAVING COUNT(DISTINCT nf.id) >= 3
+        ORDER BY receita DESC
+        LIMIT 15
+    """, (lojas_permitidas, *periodo_params))
+
+    ticket_loja = []
+    if multi_loja:
+        ticket_loja = query(f"""
+            SELECT
+                l.nome_fantasia AS loja,
+                COUNT(*) AS notas,
+                ROUND(SUM(nf.valor_total)::numeric, 2) AS faturamento,
+                ROUND(AVG(nf.valor_total)::numeric, 2) AS ticket_medio
+            FROM notas_fiscais nf
+            JOIN lojas l ON nf.loja_id = l.id
+            WHERE nf.loja_id = ANY(%s){periodo_nf_sql}
+            GROUP BY l.id, l.nome_fantasia
+            ORDER BY ticket_medio DESC
+            LIMIT 15
+        """, (lojas_permitidas, *periodo_nf_params))
+
+    desconto_resumo = query(f"""
+        SELECT
+            ROUND(SUM(valor_desconto)::numeric, 2) AS total_desconto,
+            ROUND(SUM(valor_produtos)::numeric, 2) AS valor_bruto,
+            ROUND(100.0 * SUM(valor_desconto) / NULLIF(SUM(valor_produtos), 0), 1) AS pct_bruto,
+            COUNT(*) FILTER (WHERE valor_desconto > 0) AS notas_com_desconto,
+            COUNT(*) AS total_notas
+        FROM notas_fiscais nf
+        WHERE nf.loja_id = ANY(%s){periodo_nf_sql}
+    """, (lojas_permitidas, *periodo_nf_params), fetchall=False)
+
+    desconto_categoria = query(f"""
+        SELECT
+            COALESCE(NULLIF(TRIM(p.categoria), ''), 'Sem categoria') AS categoria,
+            ROUND(SUM(iv.valor_desconto)::numeric, 2) AS desconto_total,
+            ROUND(SUM(iv.valor_total + iv.valor_desconto)::numeric, 2) AS valor_bruto,
+            ROUND(100.0 * SUM(iv.valor_desconto) / NULLIF(SUM(iv.valor_total + iv.valor_desconto), 0), 1) AS pct_desconto,
+            COUNT(DISTINCT nf.id) AS notas
+        FROM itens_venda iv
+        JOIN notas_fiscais nf ON iv.nota_id = nf.id
+        JOIN produtos p ON iv.produto_id = p.id
+        WHERE nf.loja_id = ANY(%s){periodo_sql}
+          AND iv.valor_desconto > 0
+        GROUP BY 1
+        ORDER BY desconto_total DESC
+        LIMIT 15
+    """, (lojas_permitidas, *periodo_params))
+
+    desconto_produto = query(f"""
+        SELECT
+            MAX(p.nome) AS produto,
+            MAX(p.categoria) AS categoria,
+            ROUND(SUM(iv.valor_desconto)::numeric, 2) AS desconto_total,
+            ROUND(SUM(iv.valor_total + iv.valor_desconto)::numeric, 2) AS valor_bruto,
+            ROUND(100.0 * SUM(iv.valor_desconto) / NULLIF(SUM(iv.valor_total + iv.valor_desconto), 0), 1) AS pct_desconto,
+            COUNT(DISTINCT nf.id) AS notas
+        FROM itens_venda iv
+        JOIN notas_fiscais nf ON iv.nota_id = nf.id
+        JOIN produtos p ON iv.produto_id = p.id
+        WHERE nf.loja_id = ANY(%s){periodo_sql}
+          AND iv.valor_desconto > 0
+        GROUP BY LOWER(TRIM(p.nome))
+        ORDER BY desconto_total DESC
+        LIMIT 15
+    """, (lojas_permitidas, *periodo_params))
+
+    vendas_por_cidade = query(f"""
+        SELECT
+            COALESCE(NULLIF(TRIM(c.municipio), ''), 'Não informado') AS municipio,
+            COALESCE(NULLIF(TRIM(c.uf), ''), '—') AS uf,
+            COUNT(DISTINCT nf.id) AS notas,
+            COUNT(DISTINCT nf.cliente_id) AS clientes,
+            ROUND(SUM(nf.valor_total)::numeric, 2) AS faturamento,
+            ROUND(AVG(nf.valor_total)::numeric, 2) AS ticket_medio
+        FROM notas_fiscais nf
+        JOIN clientes c ON nf.cliente_id = c.id
+        WHERE nf.loja_id = ANY(%s){periodo_nf_sql}
+        GROUP BY 1, 2
+        ORDER BY faturamento DESC
+        LIMIT 15
+    """, (lojas_permitidas, *periodo_nf_params))
+
+    resumo_desc = dict(desconto_resumo) if desconto_resumo else {}
+    total_notas_desc = int(resumo_desc.get("total_notas") or 0)
+    notas_com_desc = int(resumo_desc.get("notas_com_desconto") or 0)
+    descontos_analise = {
+        "resumo": {
+            "total_desconto": float(resumo_desc.get("total_desconto") or 0),
+            "valor_bruto": float(resumo_desc.get("valor_bruto") or 0),
+            "pct_bruto": float(resumo_desc.get("pct_bruto") or 0),
+            "notas_com_desconto": notas_com_desc,
+            "pct_notas": round(100.0 * notas_com_desc / total_notas_desc, 1) if total_notas_desc else 0.0,
+        },
+        "por_categoria": [dict(r) for r in desconto_categoria],
+        "por_produto": [dict(r) for r in desconto_produto],
+    }
+
+    return {
+        "multi_loja": multi_loja,
+        "total_lojas": len(lojas_permitidas),
+        "sazonalidade": {
+            "dia_semana": [dict(r) for r in dia_semana],
+            "dia_mes": [dict(r) for r in dia_mes],
+            "hora": [dict(r) for r in hora],
+            "picos": picos,
+        },
+        "top_lojas": [dict(r) for r in top_lojas],
+        "top_produtos_por_loja": [dict(r) for r in top_produtos_por_loja],
+        "comportamento": {
+            "clientes": _montar_clientes_novos_rec(clientes_tipos, sem_identificacao),
+            "ticket_pagamento": [dict(r) for r in ticket_pagamento],
+            "ticket_categoria": [dict(r) for r in ticket_categoria],
+            "ticket_loja": [dict(r) for r in ticket_loja],
+        },
+        "descontos_analise": descontos_analise,
+        "vendas_por_cidade": [dict(r) for r in vendas_por_cidade],
+    }
+
+
+@app.get("/api/analises/cestas")
+def analises_cestas(
+    loja_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    q: str = "",
+    min_ocorrencias: int = 10,
+    min_confianca: float = 0,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user),
+):
+    """Produtos frequentemente comprados juntos na mesma nota (venda casada).
+
+    Pares são únicos (A+B = B+A), agrupados por nome normalizado do produto
+    para evitar duplicatas de cadastro. Retorna confiança nos dois sentidos.
+    """
+    lojas_permitidas, periodo_sql, periodo_params, _, _, _ = _params_analises(
+        loja_id, data_inicio, data_fim, current_user
+    )
+    min_ocorrencias = max(3, min(min_ocorrencias, 100))
+    min_confianca = max(0, min(min_confianca, 100))
+    limit = max(5, min(limit, 100))
+
+    if not lojas_permitidas:
+        return {"cestas": [], "total": 0, "min_ocorrencias": min_ocorrencias}
+
+    filtro_nome = ""
+    filtro_params: list = []
+    if q:
+        filtro_nome = " AND (LOWER(pa.produto_nome) LIKE LOWER(%s) OR LOWER(pb.produto_nome) LIKE LOWER(%s))"
+        like = f"%{q}%"
+        filtro_params.extend([like, like])
+
+    sql = f"""
+        WITH itens_norm AS (
+            SELECT DISTINCT
+                iv.nota_id,
+                LOWER(TRIM(p.nome)) AS produto_key,
+                p.nome AS produto_nome,
+                p.categoria AS categoria
+            FROM itens_venda iv
+            JOIN produtos p ON p.id = iv.produto_id
+            JOIN notas_fiscais nf ON iv.nota_id = nf.id
+            WHERE nf.loja_id = ANY(%s){periodo_sql}
+        ),
+        produtos_agrupados AS (
+            SELECT
+                produto_key,
+                MAX(produto_nome) AS produto_nome,
+                MAX(categoria) AS categoria,
+                COUNT(DISTINCT nota_id) AS notas_com_produto
+            FROM itens_norm
+            GROUP BY produto_key
+        ),
+        pares AS (
+            SELECT
+                i1.produto_key AS key_a,
+                i2.produto_key AS key_b,
+                COUNT(DISTINCT i1.nota_id) AS vezes_juntos
+            FROM itens_norm i1
+            JOIN itens_norm i2
+                ON i1.nota_id = i2.nota_id AND i1.produto_key < i2.produto_key
+            GROUP BY i1.produto_key, i2.produto_key
+            HAVING COUNT(DISTINCT i1.nota_id) >= %s
+        ),
+        resultado AS (
+            SELECT
+                pa.produto_nome AS produto_a,
+                pb.produto_nome AS produto_b,
+                pa.categoria AS categoria_a,
+                pb.categoria AS categoria_b,
+                par.vezes_juntos,
+                pa.notas_com_produto AS notas_com_a,
+                pb.notas_com_produto AS notas_com_b,
+                ROUND(100.0 * par.vezes_juntos / NULLIF(pa.notas_com_produto, 0), 1) AS confianca_a_para_b,
+                ROUND(100.0 * par.vezes_juntos / NULLIF(pb.notas_com_produto, 0), 1) AS confianca_b_para_a
+            FROM pares par
+            JOIN produtos_agrupados pa ON pa.produto_key = par.key_a
+            JOIN produtos_agrupados pb ON pb.produto_key = par.key_b
+        )
+        SELECT
+            produto_a,
+            produto_b,
+            categoria_a,
+            categoria_b,
+            vezes_juntos,
+            notas_com_a,
+            notas_com_b,
+            confianca_a_para_b,
+            confianca_b_para_a,
+            GREATEST(confianca_a_para_b, confianca_b_para_a) AS confianca_max
+        FROM resultado
+        WHERE GREATEST(confianca_a_para_b, confianca_b_para_a) >= %s{filtro_nome}
+        ORDER BY vezes_juntos DESC, confianca_max DESC
+        LIMIT %s
+    """
+    params = [
+        lojas_permitidas, *periodo_params,
+        min_ocorrencias,
+        min_confianca,
+        *filtro_params,
+        limit,
+    ]
+    rows = query(sql, params)
+    cestas = [dict(r) for r in rows]
+    return {
+        "cestas": cestas,
+        "total": len(cestas),
+        "min_ocorrencias": min_ocorrencias,
+    }
+
+
+# ─── Administração (Fases 1 e 2) ────────────────────────────
+
+class FranquiaCreate(BaseModel):
+    nome: str
+    ativo: bool = True
+
+
+class FranquiaUpdate(BaseModel):
+    nome: Optional[str] = None
+    ativo: Optional[bool] = None
+
+
+class UsuarioCreate(BaseModel):
+    nome: str
+    email: str
+    senha: str
+    nivel_acesso: str
+    ativo: bool = True
+    loja_id: Optional[int] = None
+    franquia_ids: Optional[List[int]] = None
+
+
+class UsuarioUpdate(BaseModel):
+    nome: Optional[str] = None
+    email: Optional[str] = None
+    nivel_acesso: Optional[str] = None
+    ativo: Optional[bool] = None
+    loja_id: Optional[int] = None
+
+
+class SenhaUpdate(BaseModel):
+    senha: str
+
+
+class FranquiasUsuarioUpdate(BaseModel):
+    franquia_ids: List[int]
+
+
+class LojaFranquiaUpdate(BaseModel):
+    franquia_id: Optional[int] = None
+
+
+class UsuarioLojaUpdate(BaseModel):
+    loja_id: int
+
+
+@app.get("/api/admin/franquias")
+def admin_listar_franquias(current_user: dict = Depends(get_current_user)):
+    _require_admin(current_user)
+    if current_user["nivel_acesso"] == "master":
+        rows = query("""
+            SELECT f.id, f.nome, f.ativo, f.criado_em,
+                COUNT(DISTINCT l.id) FILTER (WHERE l.ativo = TRUE) AS total_lojas,
+                COUNT(DISTINCT uf.usuario_id) AS total_franqueados
+            FROM franquias f
+            LEFT JOIN lojas l ON l.franquia_id = f.id
+            LEFT JOIN usuario_franquias uf ON uf.franquia_id = f.id
+            GROUP BY f.id
+            ORDER BY f.nome
+        """)
+    else:
+        rows = query("""
+            SELECT f.id, f.nome, f.ativo, f.criado_em,
+                COUNT(DISTINCT l.id) FILTER (WHERE l.ativo = TRUE) AS total_lojas,
+                COUNT(DISTINCT uf.usuario_id) AS total_franqueados
+            FROM franquias f
+            LEFT JOIN lojas l ON l.franquia_id = f.id
+            LEFT JOIN usuario_franquias uf ON uf.franquia_id = f.id
+            WHERE f.id = ANY(%s)
+            GROUP BY f.id
+            ORDER BY f.nome
+        """, (current_user["franquias"],))
+    return {"franquias": [dict(r) for r in rows]}
+
+
+@app.post("/api/admin/franquias")
+def admin_criar_franquia(body: FranquiaCreate, current_user: dict = Depends(get_current_user)):
+    _require_master(current_user)
+    nome = body.nome.strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Nome da franquia é obrigatório")
+    row = query("""
+        INSERT INTO franquias (nome, ativo)
+        VALUES (%s, %s)
+        RETURNING id, nome, ativo, criado_em
+    """, (nome, body.ativo), fetchall=False)
+    return {"franquia": dict(row)}
+
+
+@app.put("/api/admin/franquias/{franquia_id}")
+def admin_atualizar_franquia(
+    franquia_id: int,
+    body: FranquiaUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_master(current_user)
+    atual = query("SELECT id FROM franquias WHERE id = %s", (franquia_id,), fetchall=False)
+    if not atual:
+        raise HTTPException(status_code=404, detail="Franquia não encontrada")
+    campos = []
+    params = []
+    if body.nome is not None:
+        nome = body.nome.strip()
+        if not nome:
+            raise HTTPException(status_code=400, detail="Nome inválido")
+        campos.append("nome = %s")
+        params.append(nome)
+    if body.ativo is not None:
+        campos.append("ativo = %s")
+        params.append(body.ativo)
+    if not campos:
+        raise HTTPException(status_code=400, detail="Nenhum campo para atualizar")
+    campos.append("atualizado_em = NOW()")
+    params.append(franquia_id)
+    row = query(f"""
+        UPDATE franquias SET {', '.join(campos)}
+        WHERE id = %s
+        RETURNING id, nome, ativo, criado_em
+    """, tuple(params), fetchall=False)
+    return {"franquia": dict(row)}
+
+
+@app.get("/api/admin/lojas")
+def admin_listar_lojas(current_user: dict = Depends(get_current_user)):
+    _require_admin(current_user)
+    lojas_ids = _lojas_gestao_ids(current_user)
+    if not lojas_ids:
+        return {"lojas": []}
+    if current_user["nivel_acesso"] == "master":
+        rows = query("""
+            SELECT l.id, l.cnpj, l.nome_fantasia, l.municipio, l.uf, l.ativo,
+                l.franquia_id, COALESCE(f.nome, '—') AS franquia
+            FROM lojas l
+            LEFT JOIN franquias f ON f.id = l.franquia_id
+            WHERE l.ativo = TRUE
+            ORDER BY l.nome_fantasia
+        """)
+    else:
+        rows = query("""
+            SELECT l.id, l.cnpj, l.nome_fantasia, l.municipio, l.uf, l.ativo,
+                l.franquia_id, COALESCE(f.nome, '—') AS franquia
+            FROM lojas l
+            LEFT JOIN franquias f ON f.id = l.franquia_id
+            WHERE l.id = ANY(%s)
+            ORDER BY l.nome_fantasia
+        """, (lojas_ids,))
+    return {"lojas": [dict(r) for r in rows]}
+
+
+@app.put("/api/admin/lojas/{loja_id}/franquia")
+def admin_vincular_loja_franquia(
+    loja_id: int,
+    body: LojaFranquiaUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_master(current_user)
+    loja = query("SELECT id FROM lojas WHERE id = %s", (loja_id,), fetchall=False)
+    if not loja:
+        raise HTTPException(status_code=404, detail="Loja não encontrada")
+    if body.franquia_id is not None:
+        fr = query("SELECT id FROM franquias WHERE id = %s", (body.franquia_id,), fetchall=False)
+        if not fr:
+            raise HTTPException(status_code=404, detail="Franquia não encontrada")
+    row = query("""
+        UPDATE lojas SET franquia_id = %s, atualizado_em = NOW()
+        WHERE id = %s
+        RETURNING id, nome_fantasia, franquia_id
+    """, (body.franquia_id, loja_id), fetchall=False)
+    franquia_nome = None
+    if body.franquia_id:
+        fn = query("SELECT nome FROM franquias WHERE id = %s", (body.franquia_id,), fetchall=False)
+        franquia_nome = fn["nome"] if fn else None
+    return {"loja": dict(row), "franquia": franquia_nome}
+
+
+@app.get("/api/admin/usuarios")
+def admin_listar_usuarios(current_user: dict = Depends(get_current_user)):
+    _require_admin(current_user)
+    if current_user["nivel_acesso"] == "master":
+        rows = query("""
+            SELECT u.id, u.nome, u.email, u.nivel_acesso, u.ativo, u.loja_id,
+                l.nome_fantasia AS loja_nome, u.franquia_id, u.criado_em,
+                COALESCE(array_agg(DISTINCT uf.franquia_id) FILTER (WHERE uf.franquia_id IS NOT NULL), '{}') AS franquia_ids,
+                COALESCE(array_agg(DISTINCT f.nome) FILTER (WHERE f.nome IS NOT NULL), '{}') AS franquias_nomes
+            FROM usuarios u
+            LEFT JOIN lojas l ON l.id = u.loja_id
+            LEFT JOIN usuario_franquias uf ON uf.usuario_id = u.id
+            LEFT JOIN franquias f ON f.id = uf.franquia_id
+            GROUP BY u.id, l.nome_fantasia
+            ORDER BY u.nome
+        """)
+    else:
+        lojas_ids = _lojas_gestao_ids(current_user)
+        if not lojas_ids:
+            return {"usuarios": []}
+        rows = query("""
+            SELECT u.id, u.nome, u.email, u.nivel_acesso, u.ativo, u.loja_id,
+                l.nome_fantasia AS loja_nome, u.franquia_id, u.criado_em,
+                COALESCE(array_agg(DISTINCT uf.franquia_id) FILTER (WHERE uf.franquia_id IS NOT NULL), '{}') AS franquia_ids,
+                COALESCE(array_agg(DISTINCT f.nome) FILTER (WHERE f.nome IS NOT NULL), '{}') AS franquias_nomes
+            FROM usuarios u
+            LEFT JOIN lojas l ON l.id = u.loja_id
+            LEFT JOIN usuario_franquias uf ON uf.usuario_id = u.id
+            LEFT JOIN franquias f ON f.id = uf.franquia_id
+            WHERE u.nivel_acesso = 'operador' AND u.loja_id = ANY(%s)
+            GROUP BY u.id, l.nome_fantasia
+            ORDER BY u.nome
+        """, (lojas_ids,))
+    usuarios = []
+    for r in rows:
+        item = dict(r)
+        item["franquia_ids"] = list(item.get("franquia_ids") or [])
+        item["franquias_nomes"] = list(item.get("franquias_nomes") or [])
+        usuarios.append(item)
+    return {"usuarios": usuarios}
+
+
+@app.post("/api/admin/usuarios")
+def admin_criar_usuario(body: UsuarioCreate, current_user: dict = Depends(get_current_user)):
+    _require_admin(current_user)
+    nivel = body.nivel_acesso.strip().lower()
+    if nivel not in ("master", "franqueado", "operador"):
+        raise HTTPException(status_code=400, detail="Nível de acesso inválido")
+    if current_user["nivel_acesso"] == "franqueado":
+        if nivel != "operador":
+            raise HTTPException(status_code=403, detail="Franqueado só pode criar operadores")
+        _validar_loja_gestao(current_user, body.loja_id)
+    if nivel == "operador":
+        _validar_loja_gestao(current_user, body.loja_id)
+    elif nivel == "franqueado":
+        if not body.franquia_ids:
+            raise HTTPException(status_code=400, detail="Franqueado precisa de ao menos uma franquia")
+        _validar_franquias_gestao(current_user, body.franquia_ids)
+    elif nivel == "master":
+        _require_master(current_user)
+    email = body.email.strip().lower()
+    if not email or len(body.senha) < 6:
+        raise HTTPException(status_code=400, detail="E-mail inválido ou senha com menos de 6 caracteres")
+    dup = query("SELECT id FROM usuarios WHERE LOWER(email) = LOWER(%s)", (email,), fetchall=False)
+    if dup:
+        raise HTTPException(status_code=409, detail="E-mail já cadastrado")
+    senha_hash = hash_password(body.senha)
+    loja_id = body.loja_id if nivel == "operador" else None
+    franquia_id = body.franquia_ids[0] if nivel == "franqueado" and body.franquia_ids else None
+    row = query("""
+        INSERT INTO usuarios (nome, email, senha_hash, nivel_acesso, ativo, loja_id, franquia_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id, nome, email, nivel_acesso, ativo, loja_id, franquia_id, criado_em
+    """, (body.nome.strip(), email, senha_hash, nivel, body.ativo, loja_id, franquia_id), fetchall=False)
+    if nivel == "franqueado" and body.franquia_ids:
+        _sync_usuario_franquias(row["id"], body.franquia_ids)
+    return {"usuario": dict(row)}
+
+
+@app.put("/api/admin/usuarios/{usuario_id}")
+def admin_atualizar_usuario(
+    usuario_id: int,
+    body: UsuarioUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    alvo = _usuario_pode_gestao(current_user, usuario_id)
+    if current_user["nivel_acesso"] == "franqueado" and body.nivel_acesso and body.nivel_acesso != "operador":
+        raise HTTPException(status_code=403, detail="Franqueado só pode manter perfil operador")
+    if body.nivel_acesso == "master":
+        _require_master(current_user)
+    campos = []
+    params = []
+    if body.nome is not None:
+        campos.append("nome = %s")
+        params.append(body.nome.strip())
+    if body.email is not None:
+        email = body.email.strip().lower()
+        dup = query(
+            "SELECT id FROM usuarios WHERE LOWER(email) = LOWER(%s) AND id <> %s",
+            (email, usuario_id),
+            fetchall=False,
+        )
+        if dup:
+            raise HTTPException(status_code=409, detail="E-mail já cadastrado")
+        campos.append("email = %s")
+        params.append(email)
+    novo_nivel = body.nivel_acesso.strip().lower() if body.nivel_acesso else alvo["nivel_acesso"]
+    if body.nivel_acesso is not None:
+        if novo_nivel not in ("master", "franqueado", "operador"):
+            raise HTTPException(status_code=400, detail="Nível de acesso inválido")
+        campos.append("nivel_acesso = %s")
+        params.append(novo_nivel)
+    if body.ativo is not None:
+        if usuario_id == current_user["id"] and not body.ativo:
+            raise HTTPException(status_code=400, detail="Você não pode desativar sua própria conta")
+        campos.append("ativo = %s")
+        params.append(body.ativo)
+    if body.loja_id is not None or novo_nivel == "operador":
+        loja_id = body.loja_id if body.loja_id is not None else alvo["loja_id"]
+        if novo_nivel == "operador":
+            _validar_loja_gestao(current_user, loja_id)
+        campos.append("loja_id = %s")
+        params.append(loja_id if novo_nivel == "operador" else None)
+    if novo_nivel != "operador" and body.nivel_acesso is not None:
+        if "loja_id = %s" not in campos:
+            campos.append("loja_id = %s")
+            params.append(None)
+    if not campos:
+        raise HTTPException(status_code=400, detail="Nenhum campo para atualizar")
+    campos.append("atualizado_em = NOW()")
+    params.append(usuario_id)
+    row = query(f"""
+        UPDATE usuarios SET {', '.join(campos)}
+        WHERE id = %s
+        RETURNING id, nome, email, nivel_acesso, ativo, loja_id, franquia_id, criado_em
+    """, tuple(params), fetchall=False)
+    return {"usuario": dict(row)}
+
+
+@app.put("/api/admin/usuarios/{usuario_id}/senha")
+def admin_atualizar_senha(
+    usuario_id: int,
+    body: SenhaUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    _usuario_pode_gestao(current_user, usuario_id)
+    if len(body.senha) < 6:
+        raise HTTPException(status_code=400, detail="Senha deve ter ao menos 6 caracteres")
+    senha_hash = hash_password(body.senha)
+    query(
+        "UPDATE usuarios SET senha_hash = %s, atualizado_em = NOW() WHERE id = %s",
+        (senha_hash, usuario_id),
+        fetchall=False,
+    )
+    return {"status": "ok"}
+
+
+@app.put("/api/admin/usuarios/{usuario_id}/franquias")
+def admin_vincular_usuario_franquias(
+    usuario_id: int,
+    body: FranquiasUsuarioUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_master(current_user)
+    alvo = _usuario_pode_gestao(current_user, usuario_id)
+    if alvo["nivel_acesso"] != "franqueado":
+        raise HTTPException(status_code=400, detail="Vínculo de franquias só se aplica a usuários franqueados")
+    if not body.franquia_ids:
+        raise HTTPException(status_code=400, detail="Informe ao menos uma franquia")
+    for fid in body.franquia_ids:
+        fr = query("SELECT id FROM franquias WHERE id = %s AND ativo = TRUE", (fid,), fetchall=False)
+        if not fr:
+            raise HTTPException(status_code=404, detail=f"Franquia {fid} não encontrada")
+    _sync_usuario_franquias(usuario_id, body.franquia_ids)
+    return {"status": "ok", "franquia_ids": body.franquia_ids}
+
+
+@app.put("/api/admin/usuarios/{usuario_id}/loja")
+def admin_vincular_usuario_loja(
+    usuario_id: int,
+    body: UsuarioLojaUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    alvo = _usuario_pode_gestao(current_user, usuario_id)
+    if alvo["nivel_acesso"] != "operador":
+        raise HTTPException(status_code=400, detail="Vínculo de loja só se aplica a operadores")
+    _validar_loja_gestao(current_user, body.loja_id)
+    row = query("""
+        UPDATE usuarios SET loja_id = %s, atualizado_em = NOW()
+        WHERE id = %s
+        RETURNING id, nome, loja_id
+    """, (body.loja_id, usuario_id), fetchall=False)
+    loja = query("SELECT nome_fantasia FROM lojas WHERE id = %s", (body.loja_id,), fetchall=False)
+    return {"usuario": dict(row), "loja_nome": loja["nome_fantasia"] if loja else None}

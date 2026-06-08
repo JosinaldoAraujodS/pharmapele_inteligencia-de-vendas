@@ -31,6 +31,10 @@ CLIENTES INATIVOS:
 	OK - PODERIA TER ALGO PARA CHAMAR O CLIENTE PARA COMPRAR ALGO NOVO OU FAZER UMA RECOMPRA
 	OK - SERIA BOM CONSEGUIR REALIZAR FILTROS
 	
+TELA PARA GERENCIAR FRANQUIAS
+TELA PARA GERENCIAR USUÁRIOS
+	PERMISSÕES DE ACESSO
+	
 MELHORIAS:
 	QUAIS NOVOS INSIGTHS PODEMOS EXTRAIR USANDO AS INFORMAÇOES DOS ARQUIVOS IMPORTADOS?
 	seria necessário outra tela para verificar as seguintes informações?
@@ -38,6 +42,8 @@ MELHORIAS:
 		top lojas em vendas
 		período da semana e mês com mais vendas
 		combinação de produtos que mais vendem, quando compra A normalmente leva B - usar para sugerir venda casada
+		em caso de medicamento perguntar se o cliente está melhro depois de um período
+		tudo isso a plataforma tem que ajudar o usuario a fazer e vender mais, ficar mais próximo do cliente
 		quais estratégia podem ser usadas com base nas informações que a plataforma fornece? é preciso converter essas informações em novas receitas!
 		
 	

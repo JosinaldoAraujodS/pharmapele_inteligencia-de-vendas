@@ -771,6 +771,88 @@ def listar_franquias_usuario(current_user: dict = Depends(get_current_user)):
     return [dict(r) for r in rows]
 
 
+class SenhaPerfilUpdate(BaseModel):
+    senha_nova: str
+
+
+@app.get("/api/usuario/perfil")
+def usuario_perfil(current_user: dict = Depends(get_current_user)):
+    """Dados do usuário logado, vínculos e escopo de acesso."""
+    row = query("""
+        SELECT
+            u.id, u.nome, u.email, u.nivel_acesso, u.ativo, u.loja_id, u.franquia_id,
+            u.criado_em,
+            l.nome_fantasia AS loja_nome,
+            l.municipio AS loja_municipio,
+            l.uf AS loja_uf,
+            f.nome AS franquia_principal
+        FROM usuarios u
+        LEFT JOIN lojas l ON l.id = u.loja_id
+        LEFT JOIN franquias f ON f.id = u.franquia_id
+        WHERE u.id = %s
+    """, (current_user["id"],), fetchall=False)
+    if not row:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    franquias = query("""
+        SELECT f.id, f.nome
+        FROM franquias f
+        JOIN usuario_franquias uf ON uf.franquia_id = f.id
+        WHERE uf.usuario_id = %s
+        ORDER BY f.nome
+    """, (current_user["id"],))
+
+    lojas_escopo = aplicar_filtro_segurança(current_user, None)
+    perfil_label = {
+        "master": "Diretoria (Master)",
+        "franqueado": "Franqueado",
+        "operador": "Operador de Loja",
+    }.get(row["nivel_acesso"], row["nivel_acesso"])
+
+    return {
+        "usuario": {
+            "id": row["id"],
+            "nome": row["nome"],
+            "email": row["email"],
+            "nivel_acesso": row["nivel_acesso"],
+            "perfil_label": perfil_label,
+            "ativo": row["ativo"],
+            "criado_em": row["criado_em"].isoformat() if row["criado_em"] else None,
+            "loja_id": row["loja_id"],
+            "loja_nome": row["loja_nome"],
+            "loja_municipio": row["loja_municipio"],
+            "loja_uf": row["loja_uf"],
+            "franquia_principal": row["franquia_principal"],
+        },
+        "franquias": [dict(r) for r in franquias],
+        "lojas_no_escopo": len(lojas_escopo),
+    }
+
+
+@app.put("/api/usuario/perfil/senha")
+def usuario_alterar_senha_perfil(
+    body: SenhaPerfilUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Altera a senha do próprio usuário logado (sessão autenticada)."""
+    if len(body.senha_nova) < 6:
+        raise HTTPException(status_code=400, detail="Nova senha deve ter ao menos 6 caracteres")
+    row = query(
+        "SELECT id FROM usuarios WHERE id = %s AND ativo = TRUE",
+        (current_user["id"],),
+        fetchall=False,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    senha_hash = hash_password(body.senha_nova)
+    query(
+        "UPDATE usuarios SET senha_hash = %s, atualizado_em = NOW() WHERE id = %s",
+        (senha_hash, current_user["id"]),
+        fetchall=False,
+    )
+    return {"status": "ok"}
+
+
 @app.post("/api/upload-xml")
 async def upload_xml(files: list[UploadFile] = File(...), current_user: dict = Depends(get_current_user)):
     resultados = []
@@ -1233,6 +1315,7 @@ def produtos_mais_vendidos(
 @app.get("/api/alertas-recompra")
 def alertas_recompra(
     dias: int = 7,
+    dias_atraso: int = 3,
     loja_id: Optional[int] = None,
     q: str = "",
     com_telefone: bool = False,
@@ -1242,13 +1325,15 @@ def alertas_recompra(
     """Alertas de recompra por par cliente+produto, filtráveis por janela e busca."""
     lojas_permitidas = aplicar_filtro_segurança(current_user, loja_id)
     if not lojas_permitidas:
-        return {"alertas": [], "total": 0, "dias": dias}
+        return {"alertas": [], "total": 0, "dias": dias, "dias_atraso": dias_atraso}
+
+    dias_atraso = max(1, min(dias_atraso, 365))
 
     partes = [
-        "proxima_compra_estimada BETWEEN NOW() - INTERVAL '3 days' AND NOW() + (INTERVAL '1 day' * %s)",
+        "proxima_compra_estimada BETWEEN NOW() - (INTERVAL '1 day' * %s) AND NOW() + (INTERVAL '1 day' * %s)",
         "loja_id = ANY(%s)",
     ]
-    params: list = [dias, lojas_permitidas]
+    params: list = [dias_atraso, dias, lojas_permitidas]
 
     if q:
         partes.append("(LOWER(cliente) LIKE LOWER(%s) OR LOWER(produto) LIKE LOWER(%s))")
@@ -1277,7 +1362,7 @@ def alertas_recompra(
     """
     rows = query(sql, params)
     alertas = [dict(r) for r in rows]
-    return {"alertas": alertas, "total": len(alertas), "dias": dias}
+    return {"alertas": alertas, "total": len(alertas), "dias": dias, "dias_atraso": dias_atraso}
 
 
 @app.get("/api/clientes-inativos")

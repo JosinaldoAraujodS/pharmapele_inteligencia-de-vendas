@@ -38,19 +38,57 @@ body {
   min-height: 100vh;
 }
 
+:root {
+  --sidebar-w: 240px;
+}
+
 /* ── Sidebar ── */
 .sidebar {
   position: fixed; top:0; left:0;
-  width: 240px; height: 100vh;
+  width: var(--sidebar-w);
+  height: 100vh;
   background: var(--brand);
   display: flex; flex-direction: column;
   z-index: 100;
   overflow: hidden;
+  transition: width .22s ease;
 }
 
 .sidebar-logo {
-  padding: 28px 24px 20px;
+  position: relative;
+  padding: 20px 44px 16px 16px;
   border-bottom: 1px solid rgba(255,255,255,.1);
+  flex-shrink: 0;
+}
+.sidebar-logo-row {
+  min-width: 0;
+}
+.sidebar-collapse-btn {
+  position: absolute;
+  top: 16px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 6px;
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.85);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.sidebar-collapse-btn:hover {
+  background: rgba(255,255,255,.16);
+  color: #fff;
+  border-color: rgba(255,255,255,.35);
+}
+.sidebar-collapse-btn .collapse-icon {
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
 }
 .sidebar-logo .brand {
   font-family: 'DM Serif Display', serif;
@@ -63,7 +101,20 @@ body {
   margin-top: 4px;
 }
 
-.nav {padding: 16px 12px; flex:1;}
+.nav {
+  padding: 16px 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.25) transparent;
+}
+.nav::-webkit-scrollbar { width: 5px; }
+.nav::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.25);
+  border-radius: 4px;
+}
 .nav-item {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px;
@@ -83,18 +134,110 @@ body {
   letter-spacing: 1.5px; color: rgba(255,255,255,.35);
   padding: 16px 14px 6px;
 }
+.nav-section:first-child { padding-top: 0; }
 
 .sidebar-footer {
-  padding: 16px;
+  padding: 14px 16px 16px;
   border-top: 1px solid rgba(255,255,255,.1);
   font-size: 12px; color: rgba(255,255,255,.4);
+  flex-shrink: 0;
+  background: var(--brand);
+}
+.sidebar-user-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 10px;
+  background: rgba(255,255,255,.06);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  transition: background .15s, border-color .15s;
+}
+.sidebar-user-card:hover {
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.28);
+}
+.sidebar-user-card.active {
+  background: rgba(255,255,255,.14);
+  border-color: rgba(200, 150, 62, .55);
+}
+.sidebar-user-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,.1);
+  border-radius: 50%;
+}
+.sidebar-user-text { flex: 1; min-width: 0; }
+.sidebar-user-chevron {
+  color: rgba(255,255,255,.45);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.sidebar-logo .brand-short { display: none; }
+
+.nav-item .nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+#app-container.sidebar-collapsed {
+  --sidebar-w: 72px;
+}
+#app-container.sidebar-collapsed .sidebar-logo {
+  padding: 14px 10px 12px;
+  text-align: center;
+}
+#app-container.sidebar-collapsed .sidebar-collapse-btn {
+  position: static;
+  width: 28px;
+  height: 28px;
+  margin: 8px auto 0;
+}
+#app-container.sidebar-collapsed .sidebar-logo .brand-full,
+#app-container.sidebar-collapsed .sidebar-logo .sub,
+#app-container.sidebar-collapsed .nav-section,
+#app-container.sidebar-collapsed .nav-label,
+#app-container.sidebar-collapsed .sidebar-user-text,
+#app-container.sidebar-collapsed .sidebar-version,
+#app-container.sidebar-collapsed .sidebar-user-chevron {
+  display: none;
+}
+#app-container.sidebar-collapsed .sidebar-logo .brand-short {
+  display: block;
+  font-size: 26px;
+}
+#app-container.sidebar-collapsed .nav-item {
+  justify-content: center;
+  padding: 10px 8px;
+}
+#app-container.sidebar-collapsed .nav-item .icon {
+  width: auto;
+  font-size: 20px;
+}
+#app-container.sidebar-collapsed .sidebar-user-card {
+  justify-content: center;
+  padding: 10px 8px;
+  margin-bottom: 8px;
+}
+#app-container.sidebar-collapsed .sidebar-footer {
+  padding: 12px 8px 14px;
 }
 
 /* ── Main ── */
 .main {
-  margin-left: 240px;
+  margin-left: var(--sidebar-w);
   min-height: 100vh;
   flex: 1;
+  transition: margin-left .22s ease;
 }
 
 .topbar {
@@ -412,6 +555,259 @@ html { scroll-behavior: smooth; }
 }
 .card-body { padding: 20px 22px; }
 
+/* ── Meu Perfil ── */
+.perfil-wrap { max-width: 720px; }
+.perfil-card { overflow: hidden; }
+.perfil-hero {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 28px 28px 26px;
+  background: linear-gradient(135deg, var(--brand) 0%, #0a5f9e 100%);
+  color: #fff;
+}
+.perfil-avatar {
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.18);
+  border: 2px solid rgba(255,255,255,.35);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; font-weight: 700;
+  flex-shrink: 0;
+  letter-spacing: .5px;
+}
+.perfil-hero-text { min-width: 0; }
+.perfil-hero-text h2 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 26px; font-weight: 400;
+  margin-bottom: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.perfil-hero-text p {
+  font-size: 14px; opacity: .88; margin-bottom: 10px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.perfil-hero .perfil-badge {
+  display: inline-flex;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+  background: rgba(255,255,255,.18);
+  color: #fff;
+  letter-spacing: .3px;
+}
+.perfil-sections {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.perfil-section {
+  padding: 24px 28px;
+  border-top: 1px solid var(--cinza-2);
+}
+.perfil-section + .perfil-section { border-left: 1px solid var(--cinza-2); }
+.perfil-section-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
+  color: var(--texto-leve); font-weight: 600; margin-bottom: 16px;
+}
+.perfil-kv { display: flex; flex-direction: column; gap: 14px; }
+.perfil-kv-row { display: flex; flex-direction: column; gap: 3px; }
+.perfil-kv-label { font-size: 12px; color: var(--texto-leve); }
+.perfil-kv-value { font-size: 14px; font-weight: 600; line-height: 1.4; }
+.perfil-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.perfil-chip {
+  display: inline-flex; padding: 4px 10px;
+  border-radius: 6px; font-size: 12px; font-weight: 500;
+  background: var(--brand-pale); color: var(--brand);
+}
+.perfil-hint {
+  font-size: 13px; color: var(--texto-leve);
+  margin-bottom: 16px; line-height: 1.5;
+}
+.perfil-form { display: flex; flex-direction: column; gap: 14px; }
+.perfil-form .campo { display: flex; flex-direction: column; gap: 6px; }
+.perfil-form label { font-size: 13px; font-weight: 500; color: var(--texto); }
+.perfil-form input {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 8px;
+  border: 1.5px solid var(--cinza-2);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  background: #fff;
+  transition: border-color .2s, box-shadow .2s;
+}
+.perfil-form input:focus {
+  border-color: var(--brand-light);
+  box-shadow: 0 0 0 3px rgba(32, 123, 199, .12);
+}
+.perfil-form input::placeholder { color: var(--cinza-3); }
+.perfil-footer {
+  padding: 18px 28px;
+  border-top: 1px solid var(--cinza-2);
+  background: var(--cinza-1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.perfil-footer-text strong { display: block; font-size: 14px; margin-bottom: 3px; }
+.perfil-footer-text span { font-size: 13px; color: var(--texto-leve); }
+@media (max-width: 640px) {
+  .perfil-sections { grid-template-columns: 1fr; }
+  .perfil-section + .perfil-section { border-left: none; }
+  .perfil-hero { padding: 22px 20px; }
+  .perfil-section { padding: 20px; }
+  .perfil-footer { padding: 16px 20px; }
+}
+
+/* ── Administração ── */
+.admin-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--cinza-2);
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+.admin-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto-leve);
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.admin-tab:hover { color: var(--texto); }
+.admin-tab.active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+.admin-guia {
+  border: 1px solid var(--brand-pale);
+  background: linear-gradient(135deg, var(--brand-pale) 0%, #fff 60%);
+}
+.admin-guia-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--brand);
+  margin-bottom: 14px;
+}
+.admin-guia-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+.admin-guia-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--cinza-2);
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+  text-align: left;
+}
+.admin-guia-step:hover {
+  border-color: var(--brand-light);
+  box-shadow: 0 2px 8px rgba(11, 74, 125, .08);
+}
+.admin-guia-step.done {
+  opacity: .72;
+  border-color: var(--cinza-2);
+}
+.admin-guia-step .num {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.admin-guia-step.done .num {
+  background: var(--cinza-3);
+  font-size: 14px;
+}
+.admin-guia-step strong {
+  display: block;
+  font-size: 13px;
+  color: var(--texto);
+  margin-bottom: 2px;
+}
+.admin-guia-step span {
+  font-size: 12px;
+  color: var(--texto-leve);
+  line-height: 1.4;
+}
+.admin-detalhe-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.admin-detalhe-stat {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--cinza-1);
+  text-align: center;
+}
+.admin-detalhe-stat .val {
+  font-family: 'DM Serif Display', serif;
+  font-size: 22px;
+  color: var(--brand);
+}
+.admin-detalhe-stat .lbl {
+  font-size: 11px;
+  color: var(--texto-leve);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.admin-detalhe-sec {
+  margin-bottom: 18px;
+}
+.admin-detalhe-sec h4 {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--texto-leve);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--cinza-2);
+}
+.admin-lojas-filtro {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.admin-lojas-filtro select {
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1.5px solid var(--cinza-2);
+  font-family: inherit;
+  font-size: 13px;
+}
+
 /* ── Tabelas ── */
 .table-wrap { overflow-x: auto; }
 table {
@@ -640,6 +1036,8 @@ tr.row-clickable:hover td { background: var(--brand-pale); }
   .section-grid.triple { grid-template-columns: 1fr; }
   .dashboard-charts-row { grid-template-columns: 1fr; }
   .desconto-stats { grid-template-columns: 1fr; }
+  .topbar { padding: 0 16px; }
+  .page { padding: 20px 16px; }
 }
 
 .progress-bar {
@@ -693,67 +1091,74 @@ tr.row-clickable:hover td { background: var(--brand-pale); }
 <div id="app-container" style="display:none">
 
 <!-- SIDEBAR -->
-<nav class="sidebar">
+<nav class="sidebar" id="sidebar">
   <div class="sidebar-logo">
-    <div class="brand">Pharmapele</div>
-    <div class="sub">Inteligência de Vendas</div>
+    <div class="sidebar-logo-row">
+      <div class="brand"><span class="brand-full">Pharmapele</span><span class="brand-short">🧴</span></div>
+      <div class="sub">Inteligência de Vendas</div>
+    </div>
+    <button type="button" id="btn-sidebar-toggle" class="sidebar-collapse-btn" onclick="toggleSidebar()" title="Recolher menu" aria-label="Recolher menu lateral">
+      <span class="collapse-icon" id="sidebar-collapse-icon">‹</span>
+    </button>
   </div>
   <div class="nav">
     <div class="nav-section">Visão Geral</div>
-    <div class="nav-item active" onclick="goTo('dashboard')">
-      <span class="icon">📊</span> Dashboard
+    <div class="nav-item active" onclick="goTo('dashboard')" title="Dashboard">
+      <span class="icon">📊</span><span class="nav-label">Dashboard</span>
     </div>
     <div class="nav-section">Dados</div>
-    <div class="nav-item" onclick="goTo('upload')">
-      <span class="icon">📤</span> Importar XMLs
+    <div class="nav-item" onclick="goTo('upload')" title="Importar XMLs">
+      <span class="icon">📤</span><span class="nav-label">Importar XMLs</span>
     </div>
-    <div class="nav-item" onclick="goTo('notas')">
-      <span class="icon">🧾</span> Notas Fiscais
+    <div class="nav-item" onclick="goTo('notas')" title="Notas Fiscais">
+      <span class="icon">🧾</span><span class="nav-label">Notas Fiscais</span>
     </div>
-    <div class="nav-item" onclick="goTo('clientes')">
-      <span class="icon">👥</span> Clientes
+    <div class="nav-item" onclick="goTo('clientes')" title="Clientes">
+      <span class="icon">👥</span><span class="nav-label">Clientes</span>
     </div>
-    <div class="nav-item" onclick="goTo('produtos')">
-      <span class="icon">🧴</span> Produtos
+    <div class="nav-item" onclick="goTo('produtos')" title="Produtos">
+      <span class="icon">🧴</span><span class="nav-label">Produtos</span>
     </div>
     <div class="nav-section">Inteligência</div>
-    <div class="nav-item" onclick="goTo('analises')">
-      <span class="icon">📊</span> Análises
+    <div class="nav-item" onclick="goTo('analises')" title="Análises">
+      <span class="icon">📈</span><span class="nav-label">Análises</span>
     </div>
-    <div class="nav-item" onclick="goTo('venda-casada')">
-      <span class="icon">🛒</span> Venda Casada
+    <div class="nav-item" onclick="goTo('venda-casada')" title="Venda Casada">
+      <span class="icon">🛒</span><span class="nav-label">Venda Casada</span>
     </div>
-    <div class="nav-item" onclick="goTo('recompra')">
-      <span class="icon">🔔</span> Alertas de Recompra
+    <div class="nav-section">Ação comercial</div>
+    <div class="nav-item" onclick="goTo('recompra')" title="Alertas de Recompra">
+      <span class="icon">🔔</span><span class="nav-label">Alertas de Recompra</span>
     </div>
-    <div class="nav-item" onclick="goTo('inativos')">
-      <span class="icon">😴</span> Clientes Inativos
+    <div class="nav-item" onclick="goTo('inativos')" title="Clientes Inativos">
+      <span class="icon">😴</span><span class="nav-label">Clientes Inativos</span>
     </div>
-    <div class="nav-item" onclick="goTo('whatsapp')">
-      <span class="icon">💬</span> WhatsApp
+    <div class="nav-item" onclick="goTo('whatsapp')" title="WhatsApp">
+      <span class="icon">💬</span><span class="nav-label">WhatsApp</span>
     </div>
-    <div class="nav-item" id="nav-admin" onclick="goTo('admin')" style="display:none">
-      <span class="icon">⚙️</span> Administração
-    </div>
-    
-    <div class="nav-item" onclick="realizarLogout()" style="margin-top:24px;color:var(--alerta);background:rgba(192,57,43,0.08)">
-      <span class="icon">🚪</span> Sair
+    <div class="nav-section" id="nav-section-sistema">Sistema</div>
+    <div class="nav-item" id="nav-admin" onclick="goTo('admin')" style="display:none" title="Administração">
+      <span class="icon">⚙️</span><span class="nav-label">Administração</span>
     </div>
   </div>
-  
-  <div class="sidebar-footer" style="padding:16px;border-top:1px solid rgba(255,255,255,.1);display:flex;flex-direction:column;gap:8px">
-    <div>
-      <div style="font-weight:600;color:#fff;margin-bottom:2px" id="sidebar-user-name">Carregando...</div>
-      <div style="font-size:10px;text-transform:uppercase;color:var(--ouro);font-weight:600;letter-spacing:0.5px" id="sidebar-user-level">Perfil</div>
-    </div>
-    <div style="font-size:11px;color:rgba(255,255,255,.4)">v1.1 · Pharmapele © 2026</div>
+
+  <div class="sidebar-footer">
+    <button type="button" id="sidebar-user-card" class="sidebar-user-card" onclick="goTo('perfil')" title="Meu perfil">
+      <span class="sidebar-user-icon">👤</span>
+      <div class="sidebar-user-text">
+        <div style="font-weight:600;color:#fff;margin-bottom:2px" id="sidebar-user-name">Carregando...</div>
+        <div style="font-size:10px;text-transform:uppercase;color:var(--ouro);font-weight:600;letter-spacing:0.5px" id="sidebar-user-level">Perfil</div>
+      </div>
+      <span class="sidebar-user-chevron" aria-hidden="true">›</span>
+    </button>
+    <div class="sidebar-version" style="font-size:11px;color:rgba(255,255,255,.4)">v1.1 · Pharmapele © 2026</div>
   </div>
 </nav>
 
 <!-- MAIN -->
 <div class="main">
   <div class="topbar">
-    <div style="display:flex;align-items:center;gap:16px">
+    <div style="display:flex;align-items:center;gap:16px;min-width:0">
       <div class="topbar-title" id="topbar-title">Dashboard</div>
       <!-- Seletor de Loja -->
       <select id="seletor-loja" onchange="selecionarLoja(this.value)" style="padding:6px 12px;border-radius:8px;border:1.5px solid var(--cinza-2);font-family:inherit;font-size:13px;font-weight:500;background:var(--cinza-1);color:var(--texto);cursor:pointer;outline:none;transition:border-color .2s">
@@ -1364,11 +1769,22 @@ tr.row-clickable:hover td { background: var(--brand-pale); }
               oninput="debouncedAplicarRecompra()" onkeydown="if(event.key==='Enter')aplicarFiltrosRecompra()"/>
           </div>
           <div class="campo">
-            <label for="janela-dias">Janela</label>
+            <label for="janela-dias">Próximos</label>
             <select id="janela-dias" onchange="aplicarFiltrosRecompra()">
-              <option value="7">Próximos 7 dias</option>
-              <option value="14">Próximos 14 dias</option>
-              <option value="30">Próximos 30 dias</option>
+              <option value="7">7 dias</option>
+              <option value="14">14 dias</option>
+              <option value="30">30 dias</option>
+            </select>
+          </div>
+          <div class="campo">
+            <label for="recompra-dias-atraso">Atraso máx.</label>
+            <select id="recompra-dias-atraso" onchange="aplicarFiltrosRecompra()">
+              <option value="3">Até 3 dias</option>
+              <option value="7">Até 7 dias</option>
+              <option value="14">Até 14 dias</option>
+              <option value="30">Até 30 dias</option>
+              <option value="60">Até 60 dias</option>
+              <option value="90">Até 90 dias</option>
             </select>
           </div>
           <div class="campo" style="justify-content:flex-end">
@@ -1383,9 +1799,7 @@ tr.row-clickable:hover td { background: var(--brand-pale); }
           </div>
           <button class="btn btn-outline btn-sm" onclick="limparFiltrosRecompra()">Limpar</button>
         </div>
-        <p style="font-size:12px;color:var(--texto-leve);margin:12px 0 16px">
-          A janela inclui alertas de até 3 dias <em>atrasados</em> até a data escolhida à frente.
-        </p>
+        <p id="recompra-janela-hint" style="font-size:12px;color:var(--texto-leve);margin:12px 0 16px"></p>
         <div id="lista-alertas"><div class="loading"><div class="spinner"></div></div></div>
       </div>
     </div>
@@ -1517,19 +1931,26 @@ Até breve! 💙<br><em>Equipe Pharmapele</em>
 
   <!-- ═══ ADMINISTRAÇÃO ═══ -->
   <div class="page" id="page-admin">
+    <div class="card admin-guia" id="admin-guia" style="margin-bottom:20px;display:none">
+      <div class="card-body">
+        <div class="admin-guia-title">Primeiros passos · configuração da rede</div>
+        <div class="admin-guia-steps" id="admin-guia-steps"></div>
+      </div>
+    </div>
+
     <div class="card" style="margin-bottom:20px">
       <div class="card-header">
         <span class="card-title">⚙️ Administração</span>
         <span id="admin-contexto" class="badge badge-cinza"></span>
       </div>
       <div class="card-body">
-        <p style="font-size:13px;color:var(--texto-leve);margin-bottom:14px;line-height:1.5" id="admin-descricao">
+        <p style="font-size:13px;color:var(--texto-leve);margin-bottom:16px;line-height:1.5" id="admin-descricao">
           Gerencie franquias, usuários e vínculos de acesso ao sistema.
         </p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap" id="admin-tabs">
-          <button class="btn btn-primary btn-sm" id="admin-tab-franquias" onclick="adminTab('franquias')">Franquias</button>
-          <button class="btn btn-outline btn-sm" id="admin-tab-usuarios" onclick="adminTab('usuarios')">Usuários</button>
-          <button class="btn btn-outline btn-sm" id="admin-tab-lojas" onclick="adminTab('lojas')">Lojas & vínculos</button>
+        <div class="admin-tabs" id="admin-tabs">
+          <button type="button" class="admin-tab active" id="admin-tab-usuarios" onclick="adminTab('usuarios')">👥 Usuários</button>
+          <button type="button" class="admin-tab" id="admin-tab-franquias" onclick="adminTab('franquias')">🏢 Franquias</button>
+          <button type="button" class="admin-tab" id="admin-tab-lojas" onclick="adminTab('lojas')">🔗 Lojas & vínculos</button>
         </div>
       </div>
     </div>
@@ -1560,7 +1981,58 @@ Até breve! 💙<br><em>Equipe Pharmapele</em>
         <p style="font-size:13px;color:var(--texto-leve);margin-bottom:12px" id="admin-lojas-hint">
           Lojas importadas via XML podem ficar sem franquia até serem vinculadas pela matriz.
         </p>
+        <div class="admin-lojas-filtro" id="admin-lojas-filtro-wrap">
+          <label for="admin-lojas-filtro-franquia" style="font-size:13px;font-weight:500;color:var(--texto)">Filtrar:</label>
+          <select id="admin-lojas-filtro-franquia" onchange="aplicarFiltroLojasAdmin()">
+            <option value="">Todas as lojas</option>
+            <option value="sem">Sem franquia</option>
+          </select>
+          <button type="button" class="btn btn-outline btn-sm" id="admin-lojas-limpar-filtro" style="display:none" onclick="limparFiltroLojasAdmin()">Limpar filtro</button>
+        </div>
         <div id="admin-lojas-tabela"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MEU PERFIL ═══ -->
+  <div class="page" id="page-perfil">
+    <div class="perfil-wrap">
+      <div class="card perfil-card">
+        <div id="perfil-hero">
+          <div class="loading" style="padding:32px"><div class="spinner"></div></div>
+        </div>
+        <div class="perfil-sections">
+          <div class="perfil-section">
+            <div class="perfil-section-title">Conta e acesso</div>
+            <div id="perfil-info">
+              <div class="loading"><div class="spinner"></div></div>
+            </div>
+          </div>
+          <div class="perfil-section">
+            <div class="perfil-section-title">Segurança</div>
+            <p class="perfil-hint">Defina uma nova senha de acesso. Mínimo de 6 caracteres.</p>
+            <form class="perfil-form" onsubmit="salvarSenhaPerfil(event)">
+              <div class="campo">
+                <label for="perfil-senha-nova">Nova senha</label>
+                <input type="password" id="perfil-senha-nova" autocomplete="new-password" placeholder="Digite a nova senha"/>
+              </div>
+              <div class="campo">
+                <label for="perfil-senha-confirma">Confirmar senha</label>
+                <input type="password" id="perfil-senha-confirma" autocomplete="new-password" placeholder="Repita a nova senha"/>
+              </div>
+              <button type="submit" class="btn btn-primary btn-sm">Salvar nova senha</button>
+            </form>
+          </div>
+        </div>
+        <div class="perfil-footer">
+          <div class="perfil-footer-text">
+            <strong>Encerrar sessão</strong>
+            <span>Você precisará entrar novamente com e-mail e senha.</span>
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" style="border-color:var(--alerta);color:var(--alerta)" onclick="realizarLogout()">
+            Sair do sistema
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -1633,6 +2105,49 @@ const debouncedAplicarInativos = debounce(() => aplicarFiltrosInativos());
 const debouncedAplicarVendaCasada = debounce(() => aplicarFiltrosVendaCasada());
 
 // ── Navegação ────────────────────────────────────────────
+const SIDEBAR_COLLAPSE_BP = 1024;
+
+function aplicarSidebarColapsada(colapsada) {
+  const app = document.getElementById('app-container');
+  const btn = document.getElementById('btn-sidebar-toggle');
+  const icon = document.getElementById('sidebar-collapse-icon');
+  if (!app) return;
+  app.classList.toggle('sidebar-collapsed', colapsada);
+  if (btn) {
+    btn.title = colapsada ? 'Expandir menu' : 'Recolher menu';
+    btn.setAttribute('aria-label', colapsada ? 'Expandir menu lateral' : 'Recolher menu lateral');
+  }
+  if (icon) icon.textContent = colapsada ? '›' : '‹';
+}
+
+function toggleSidebar() {
+  const app = document.getElementById('app-container');
+  if (!app) return;
+  const colapsada = !app.classList.contains('sidebar-collapsed');
+  aplicarSidebarColapsada(colapsada);
+  localStorage.setItem('sidebar_collapsed', colapsada ? '1' : '0');
+}
+
+function initSidebarLayout() {
+  const app = document.getElementById('app-container');
+  if (!app || app.style.display === 'none') return;
+  const estreita = window.innerWidth <= SIDEBAR_COLLAPSE_BP;
+  const salvo = localStorage.getItem('sidebar_collapsed');
+  if (estreita) {
+    aplicarSidebarColapsada(true);
+  } else if (salvo === '1') {
+    aplicarSidebarColapsada(true);
+  } else {
+    aplicarSidebarColapsada(false);
+  }
+}
+
+window.addEventListener('resize', () => {
+  if (document.getElementById('app-container')?.style.display !== 'none') {
+    initSidebarLayout();
+  }
+});
+
 const titles = {
   dashboard: 'Dashboard',
   upload: 'Importar XMLs',
@@ -1645,9 +2160,32 @@ const titles = {
   inativos: 'Clientes Inativos',
   whatsapp: 'Mensagens WhatsApp',
   admin: 'Administração',
+  perfil: 'Meu Perfil',
 };
 
-function goTo(page, opts = {}) {
+function paginaDoHash() {
+  const raw = (location.hash || '').replace(/^#\/?/, '').split('?')[0].trim();
+  if (!raw) return 'dashboard';
+  return Object.prototype.hasOwnProperty.call(titles, raw) ? raw : 'dashboard';
+}
+
+function sincronizarHash(page, replace = false) {
+  const alvo = page === 'dashboard' ? '' : '#' + page;
+  if (location.hash === alvo) return;
+  const url = location.pathname + location.search + alvo;
+  if (replace) history.replaceState(null, '', url);
+  else if (page === 'dashboard') location.hash = '';
+  else location.hash = page;
+}
+
+function goTo(page, opts = {}, navOpts = {}) {
+  const fromHash = !!navOpts.fromHash;
+  const replaceHash = !!navOpts.replaceHash;
+
+  if (!Object.prototype.hasOwnProperty.call(titles, page)) page = 'dashboard';
+  if (fromHash && page === window.paginaAtual && Object.keys(opts).length === 0) return;
+
+  window.paginaAtual = page;
   window.pageContext = Object.keys(opts).length ? opts : {};
   fecharModal();
   fecharModalNota();
@@ -1660,6 +2198,8 @@ function goTo(page, opts = {}) {
   document.querySelectorAll('.nav-item').forEach(n => {
     if (n.getAttribute('onclick')?.includes("'" + page + "'")) n.classList.add('active');
   });
+  const userCard = document.getElementById('sidebar-user-card');
+  if (userCard) userCard.classList.toggle('active', page === 'perfil');
   document.getElementById('topbar-title').textContent = titles[page] || page;
 
   const loaders = {
@@ -1673,9 +2213,18 @@ function goTo(page, opts = {}) {
     inativos: carregarInativos,
     whatsapp: carregarContatos,
     admin: carregarAdmin,
+    perfil: carregarPerfil,
   };
   if (loaders[page]) loaders[page]();
+
+  if (!fromHash) sincronizarHash(page);
+  else if (replaceHash) sincronizarHash(page, true);
 }
+
+window.addEventListener('hashchange', () => {
+  if (document.getElementById('app-container')?.style.display === 'none') return;
+  goTo(paginaDoHash(), {}, { fromHash: true });
+});
 
 // ── Autenticação e Sessão ──────────────────────────────────
 function exibirLogin() {
@@ -1700,9 +2249,11 @@ function exibirApp(usuario) {
     document.getElementById('sidebar-user-level').textContent = nivel;
 
     const navAdmin = document.getElementById('nav-admin');
+    const secSistema = document.getElementById('nav-section-sistema');
     if (navAdmin) {
-      navAdmin.style.display = (usuario.nivel_acesso === 'master' || usuario.nivel_acesso === 'franqueado')
-        ? 'flex' : 'none';
+      const showAdmin = usuario.nivel_acesso === 'master' || usuario.nivel_acesso === 'franqueado';
+      navAdmin.style.display = showAdmin ? 'flex' : 'none';
+      if (secSistema) secSistema.style.display = showAdmin ? '' : 'none';
     }
   }
 }
@@ -1739,6 +2290,7 @@ async function realizarLogin(event) {
     
     exibirApp(data.usuario);
     await inicializar();
+    initSidebarLayout();
   } catch (err) {
     errorMsgEl.textContent = err.message;
     errorEl.style.display = 'flex';
@@ -1765,6 +2317,8 @@ function toggleSenha() {
 function realizarLogout() {
   localStorage.removeItem('auth_token');
   localStorage.removeItem('auth_user');
+  window.paginaAtual = null;
+  history.replaceState(null, '', location.pathname + location.search);
   exibirLogin();
 }
 
@@ -1777,6 +2331,7 @@ function checarSessao() {
       const usuario = JSON.parse(userStr);
       exibirApp(usuario);
       inicializar();
+      initSidebarLayout();
     } catch (e) {
       realizarLogout();
     }
@@ -1795,7 +2350,7 @@ async function api(path) {
     }
 
     let url = API + path;
-    const skipLoja = path.startsWith('/api/admin');
+    const skipLoja = path.startsWith('/api/admin') || path.startsWith('/api/usuario/perfil');
     if (!skipLoja && window.lojaIdAtual > 0) {
       url += (path.includes('?') ? '&' : '?') + 'loja_id=' + window.lojaIdAtual;
     }
@@ -3273,24 +3828,38 @@ async function exportarProdutosCSV() {
 }
 
 // ── Alertas ──────────────────────────────────────────────
-window.recompraFiltro = { q: '', dias: 7, comTelefone: false, apenasAtrasados: false };
+window.recompraFiltro = { q: '', dias: 7, diasAtraso: 3, comTelefone: false, apenasAtrasados: false };
+
+function atualizarHintRecompra() {
+  const f = window.recompraFiltro;
+  const hint = document.getElementById('recompra-janela-hint');
+  if (!hint) return;
+  const soAtrasados = f.apenasAtrasados
+    ? ' Mostrando <em>somente atrasados</em>.'
+    : ` Inclui alertas até <strong>${f.dias} dias à frente</strong>.`;
+  hint.innerHTML = `Período de atraso: até <strong>${f.diasAtraso} dias</strong> após a data estimada.${soAtrasados}`;
+}
 
 function syncRecompraFiltrosUI() {
   const f = window.recompraFiltro;
   const busca = document.getElementById('recompra-busca');
   const janela = document.getElementById('janela-dias');
+  const atraso = document.getElementById('recompra-dias-atraso');
   const tel = document.getElementById('recompra-com-telefone');
   const atras = document.getElementById('recompra-atrasados');
   if (busca) busca.value = f.q;
   if (janela) janela.value = String(f.dias);
+  if (atraso) atraso.value = String(f.diasAtraso);
   if (tel) tel.checked = f.comTelefone;
   if (atras) atras.checked = f.apenasAtrasados;
+  atualizarHintRecompra();
 }
 
 function buildRecompraQueryString() {
   const f = window.recompraFiltro;
   const p = new URLSearchParams();
   p.set('dias', f.dias);
+  p.set('dias_atraso', f.diasAtraso);
   if (f.q) p.set('q', f.q);
   if (f.comTelefone) p.set('com_telefone', 'true');
   if (f.apenasAtrasados) p.set('apenas_atrasados', 'true');
@@ -3300,13 +3869,14 @@ function buildRecompraQueryString() {
 function aplicarFiltrosRecompra() {
   window.recompraFiltro.q = document.getElementById('recompra-busca').value.trim();
   window.recompraFiltro.dias = Number(document.getElementById('janela-dias').value) || 7;
+  window.recompraFiltro.diasAtraso = Number(document.getElementById('recompra-dias-atraso').value) || 3;
   window.recompraFiltro.comTelefone = document.getElementById('recompra-com-telefone').checked;
   window.recompraFiltro.apenasAtrasados = document.getElementById('recompra-atrasados').checked;
   carregarAlertas();
 }
 
 function limparFiltrosRecompra() {
-  window.recompraFiltro = { q: '', dias: 7, comTelefone: false, apenasAtrasados: false };
+  window.recompraFiltro = { q: '', dias: 7, diasAtraso: 3, comTelefone: false, apenasAtrasados: false };
   syncRecompraFiltrosUI();
   carregarAlertas();
 }
@@ -3319,8 +3889,11 @@ async function carregarAlertas() {
   const lista = data?.alertas || [];
 
   if (totalEl) {
-    const janela = window.recompraFiltro.dias;
-    totalEl.textContent = NUM(data?.total ?? lista.length) + ' alertas · janela ' + janela + 'd';
+    const f = window.recompraFiltro;
+    const partes = [NUM(data?.total ?? lista.length) + ' alertas'];
+    if (f.apenasAtrasados) partes.push('atraso ≤' + f.diasAtraso + 'd');
+    else partes.push('−' + f.diasAtraso + 'd / +' + f.dias + 'd');
+    totalEl.textContent = partes.join(' · ');
   }
 
   if (!lista.length) {
@@ -4036,7 +4609,8 @@ async function carregarAnalises() {
 
 // ── Administração ─────────────────────────────────────────
 window.adminCache = { franquias: [], usuarios: [], lojas: [] };
-window.adminTabAtiva = 'franquias';
+window.adminTabAtiva = 'usuarios';
+window.adminLojasFiltro = { franquiaId: null, semFranquia: false };
 
 function isMasterAdmin() {
   return window.usuarioAtual?.nivel_acesso === 'master';
@@ -4056,17 +4630,40 @@ function abrirModalAdmin(titulo, html) {
   document.getElementById('modal-admin').classList.add('active');
 }
 
-function adminTab(tab) {
+function adminTabInicial() {
+  const master = isMasterAdmin();
+  const permitidas = master ? ['usuarios', 'franquias', 'lojas'] : ['usuarios', 'lojas'];
+  const salva = localStorage.getItem('admin_tab');
+  if (salva && permitidas.includes(salva)) return salva;
+  return 'usuarios';
+}
+
+function adminTab(tab, opts = {}) {
+  const master = isMasterAdmin();
+  if (!master && tab === 'franquias') tab = 'usuarios';
+
+  if (opts.franquiaId != null) {
+    window.adminLojasFiltro = { franquiaId: opts.franquiaId, semFranquia: false };
+  } else if (opts.semFranquia) {
+    window.adminLojasFiltro = { franquiaId: null, semFranquia: true };
+  } else if (!opts.manterFiltroLojas) {
+    window.adminLojasFiltro = { franquiaId: null, semFranquia: false };
+  }
+
   window.adminTabAtiva = tab;
+  localStorage.setItem('admin_tab', tab);
+
   ['franquias', 'usuarios', 'lojas'].forEach(t => {
     const panel = document.getElementById('admin-panel-' + t);
     const btn = document.getElementById('admin-tab-' + t);
     if (panel) panel.style.display = t === tab ? 'block' : 'none';
-    if (btn) {
-      btn.classList.toggle('btn-primary', t === tab);
-      btn.classList.toggle('btn-outline', t !== tab);
-    }
+    if (btn) btn.classList.toggle('active', t === tab);
   });
+
+  if (tab === 'lojas') {
+    syncFiltroLojasAdminUI();
+    carregarAdminLojas();
+  }
 }
 
 function configurarAdminUI() {
@@ -4075,16 +4672,16 @@ function configurarAdminUI() {
   if (ctx) ctx.textContent = master ? 'Matriz · acesso total' : 'Franqueado · operadores das suas lojas';
 
   const tabFranquias = document.getElementById('admin-tab-franquias');
-  const tabLojas = document.getElementById('admin-tab-lojas');
   const btnNovaFranquia = document.getElementById('btn-nova-franquia');
   const desc = document.getElementById('admin-descricao');
   const hintLojas = document.getElementById('admin-lojas-hint');
+  const filtroWrap = document.getElementById('admin-lojas-filtro-wrap');
 
   if (tabFranquias) tabFranquias.style.display = master ? 'inline-flex' : 'none';
   if (btnNovaFranquia) btnNovaFranquia.style.display = master ? 'inline-flex' : 'none';
   if (desc) {
     desc.textContent = master
-      ? 'Gerencie franquias, usuários (master, franqueado, operador) e vínculos loja ↔ franquia.'
+      ? 'Gerencie usuários, franquias e vínculos loja ↔ franquia. Use as abas acima para navegar.'
       : 'Cadastre operadores das lojas da sua franquia e gerencie senhas de acesso.';
   }
   if (hintLojas) {
@@ -4092,7 +4689,101 @@ function configurarAdminUI() {
       ? 'Lojas importadas via XML podem ficar sem franquia até serem vinculadas pela matriz.'
       : 'Visualização das lojas do seu escopo. Vínculo com franquia é feito pela matriz.';
   }
-  if (!master && window.adminTabAtiva === 'franquias') adminTab('usuarios');
+  if (filtroWrap) filtroWrap.style.display = master ? 'flex' : 'none';
+}
+
+function atualizarAdminGuia() {
+  const guia = document.getElementById('admin-guia');
+  const stepsEl = document.getElementById('admin-guia-steps');
+  if (!guia || !stepsEl || !isMasterAdmin()) {
+    if (guia) guia.style.display = 'none';
+    return;
+  }
+
+  const franquias = window.adminCache.franquias || [];
+  const lojas = window.adminCache.lojas || [];
+  const usuarios = window.adminCache.usuarios || [];
+  const lojasSem = lojas.filter(l => !l.franquia_id).length;
+  const franqueados = usuarios.filter(u => u.nivel_acesso === 'franqueado' && u.ativo).length;
+  const operadores = usuarios.filter(u => u.nivel_acesso === 'operador' && u.ativo).length;
+
+  window.adminGuiaEstado = { lojasSem };
+
+  const passos = [
+    { id: 1, ok: franquias.length > 0, num: '1', titulo: 'Criar franquia', desc: 'Cadastre a rede de franquias' },
+    { id: 2, ok: lojasSem === 0 && lojas.length > 0, num: '2', titulo: 'Vincular lojas', desc: lojasSem ? lojasSem + ' loja(s) sem franquia' : 'Todas as lojas vinculadas' },
+    { id: 3, ok: franqueados > 0, num: '3', titulo: 'Criar franqueado', desc: 'Responsável pela franquia' },
+    { id: 4, ok: operadores > 0, num: '4', titulo: 'Criar operadores', desc: 'Acesso por loja' },
+  ];
+
+  const incompleto = passos.some(p => !p.ok);
+  guia.style.display = incompleto ? 'block' : 'none';
+  if (!incompleto) return;
+
+  stepsEl.innerHTML = passos.map(p => `
+    <button type="button" class="admin-guia-step ${p.ok ? 'done' : ''}" onclick="adminGuiaAcao(${p.id})">
+      <span class="num">${p.ok ? '✓' : p.num}</span>
+      <div>
+        <strong>${escapeHTML(p.titulo)}</strong>
+        <span>${escapeHTML(p.desc)}</span>
+      </div>
+    </button>
+  `).join('');
+}
+
+function adminGuiaAcao(passo) {
+  switch (passo) {
+    case 1:
+      adminTab('franquias');
+      abrirModalFranquia();
+      break;
+    case 2:
+      adminTab('lojas', { semFranquia: (window.adminGuiaEstado?.lojasSem || 0) > 0 });
+      break;
+    case 3:
+      adminTab('usuarios');
+      abrirModalUsuario(null, { nivel: 'franqueado' });
+      break;
+    case 4:
+      adminTab('usuarios');
+      abrirModalUsuario(null, { nivel: 'operador' });
+      break;
+  }
+}
+
+function syncFiltroLojasAdminUI() {
+  const sel = document.getElementById('admin-lojas-filtro-franquia');
+  const btnLimpar = document.getElementById('admin-lojas-limpar-filtro');
+  if (!sel) return;
+
+  const franquias = window.adminCache.franquias || [];
+  const f = window.adminLojasFiltro;
+  let opts = '<option value="">Todas as lojas</option><option value="sem">Sem franquia</option>';
+  franquias.forEach(fr => {
+    opts += `<option value="${fr.id}">${escapeHTML(fr.nome)}</option>`;
+  });
+  sel.innerHTML = opts;
+
+  if (f.semFranquia) sel.value = 'sem';
+  else if (f.franquiaId) sel.value = String(f.franquiaId);
+  else sel.value = '';
+
+  if (btnLimpar) btnLimpar.style.display = (f.semFranquia || f.franquiaId) ? 'inline-flex' : 'none';
+}
+
+function aplicarFiltroLojasAdmin() {
+  const val = document.getElementById('admin-lojas-filtro-franquia')?.value;
+  if (val === 'sem') window.adminLojasFiltro = { franquiaId: null, semFranquia: true };
+  else if (val) window.adminLojasFiltro = { franquiaId: Number(val), semFranquia: false };
+  else window.adminLojasFiltro = { franquiaId: null, semFranquia: false };
+  syncFiltroLojasAdminUI();
+  carregarAdminLojas();
+}
+
+function limparFiltroLojasAdmin() {
+  window.adminLojasFiltro = { franquiaId: null, semFranquia: false };
+  syncFiltroLojasAdminUI();
+  carregarAdminLojas();
 }
 
 async function carregarAdmin() {
@@ -4102,7 +4793,8 @@ async function carregarAdmin() {
     carregarAdminUsuarios(),
     carregarAdminLojas()
   ]);
-  adminTab(window.adminTabAtiva || (isMasterAdmin() ? 'franquias' : 'usuarios'));
+  atualizarAdminGuia();
+  adminTab(adminTabInicial(), { manterFiltroLojas: true });
 }
 
 async function carregarAdminFranquias() {
@@ -4126,11 +4818,14 @@ async function carregarAdminFranquias() {
         <tbody>
           ${lista.map(f => `
             <tr>
-              <td><strong>${escapeHTML(f.nome)}</strong></td>
+              <td>
+                <button type="button" class="btn btn-outline btn-sm" style="border:none;padding:0;font-weight:700;color:var(--brand);background:none" onclick="abrirDetalheFranquia(${f.id})">${escapeHTML(f.nome)}</button>
+              </td>
               <td><span class="badge ${f.ativo ? 'badge-brand' : 'badge-cinza'}">${f.ativo ? 'Ativa' : 'Inativa'}</span></td>
               <td>${NUM(f.total_lojas)}</td>
               <td>${NUM(f.total_franqueados)}</td>
-              <td>
+              <td style="white-space:nowrap">
+                <button class="btn btn-outline btn-sm" onclick="abrirDetalheFranquia(${f.id})">Detalhes</button>
                 <button class="btn btn-outline btn-sm" onclick="abrirModalFranquia(${f.id})">Editar</button>
               </td>
             </tr>
@@ -4138,6 +4833,76 @@ async function carregarAdminFranquias() {
         </tbody>
       </table>
     </div>`;
+}
+
+function abrirDetalheFranquia(id) {
+  const f = window.adminCache.franquias.find(x => x.id === id);
+  if (!f) return;
+
+  const lojas = (window.adminCache.lojas || []).filter(l => l.franquia_id === id);
+  const franqueados = (window.adminCache.usuarios || []).filter(
+    u => u.nivel_acesso === 'franqueado' && (u.franquia_ids || []).includes(id)
+  );
+  const lojasSem = (window.adminCache.lojas || []).filter(l => !l.franquia_id);
+
+  const lojasHtml = lojas.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Loja</th><th>Cidade</th></tr></thead><tbody>
+        ${lojas.map(l => `<tr><td>${escapeHTML(l.nome_fantasia)}</td><td>${escapeHTML(l.municipio)}-${escapeHTML(l.uf)}</td></tr>`).join('')}
+       </tbody></table></div>`
+    : '<p style="font-size:13px;color:var(--texto-leve)">Nenhuma loja vinculada a esta franquia.</p>';
+
+  const franqHtml = franqueados.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Status</th></tr></thead><tbody>
+        ${franqueados.map(u => `<tr>
+          <td>${escapeHTML(u.nome)}</td>
+          <td>${escapeHTML(u.email)}</td>
+          <td><span class="badge ${u.ativo ? 'badge-brand' : 'badge-cinza'}">${u.ativo ? 'Ativo' : 'Inativo'}</span></td>
+        </tr>`).join('')}
+       </tbody></table></div>`
+    : '<p style="font-size:13px;color:var(--texto-leve)">Nenhum franqueado vinculado.</p>';
+
+  let vincularLojaHtml = '';
+  if (isMasterAdmin() && lojasSem.length) {
+    vincularLojaHtml = `
+      <div class="admin-detalhe-sec">
+        <h4>Vincular loja sem franquia</h4>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div class="campo" style="flex:1;min-width:180px;margin:0">
+            <select id="adm-detalhe-loja-select">
+              ${lojasSem.map(l => `<option value="${l.id}">${escapeHTML(l.nome_fantasia)} (${escapeHTML(l.municipio)})</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="vincularLojaNaFranquia(${id})">Vincular à franquia</button>
+        </div>
+      </div>`;
+  }
+
+  abrirModalAdmin('Franquia · ' + f.nome, `
+    <div class="admin-detalhe-stats">
+      <div class="admin-detalhe-stat"><div class="val">${NUM(lojas.length)}</div><div class="lbl">Lojas</div></div>
+      <div class="admin-detalhe-stat"><div class="val">${NUM(franqueados.length)}</div><div class="lbl">Franqueados</div></div>
+      <div class="admin-detalhe-stat"><div class="val">${f.ativo ? 'Ativa' : 'Inativa'}</div><div class="lbl">Status</div></div>
+    </div>
+    <div class="admin-detalhe-sec"><h4>Lojas vinculadas</h4>${lojasHtml}</div>
+    <div class="admin-detalhe-sec"><h4>Franqueados</h4>${franqHtml}</div>
+    ${vincularLojaHtml}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:8px">
+      <button class="btn btn-outline btn-sm" onclick="adminTab('lojas', { franquiaId: ${id} }); fecharModalAdmin()">Ver lojas</button>
+      <button class="btn btn-outline btn-sm" onclick="abrirModalFranquia(${id}); fecharModalAdmin()">Editar franquia</button>
+      <button class="btn btn-primary btn-sm" onclick="fecharModalAdmin(); abrirModalUsuario(null, { nivel: 'franqueado', franquiaId: ${id} })">+ Franqueado</button>
+    </div>
+  `);
+}
+
+async function vincularLojaNaFranquia(franquiaId) {
+  const lojaId = Number(document.getElementById('adm-detalhe-loja-select')?.value);
+  if (!lojaId) return;
+  const res = await apiJson('PUT', '/api/admin/lojas/' + lojaId + '/franquia', { franquia_id: franquiaId });
+  if (!res.ok) return alert(res.error);
+  fecharModalAdmin();
+  await Promise.all([carregarAdminFranquias(), carregarAdminLojas(), carregarAdminUsuarios()]);
+  atualizarAdminGuia();
+  abrirDetalheFranquia(franquiaId);
 }
 
 async function carregarAdminUsuarios() {
@@ -4187,12 +4952,23 @@ async function carregarAdminUsuarios() {
 
 async function carregarAdminLojas() {
   const el = document.getElementById('admin-lojas-tabela');
+  if (!el) return;
   el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   const data = await api('/api/admin/lojas');
-  const lista = data?.lojas || [];
+  let lista = data?.lojas || [];
   window.adminCache.lojas = lista;
+
+  const f = window.adminLojasFiltro || {};
+  if (f.semFranquia) lista = lista.filter(l => !l.franquia_id);
+  else if (f.franquiaId) lista = lista.filter(l => l.franquia_id === f.franquiaId);
+
   if (!lista.length) {
-    el.innerHTML = '<div class="empty">Nenhuma loja no escopo.</div>';
+    const msg = f.semFranquia
+      ? 'Nenhuma loja sem franquia.'
+      : f.franquiaId
+        ? 'Nenhuma loja nesta franquia.'
+        : 'Nenhuma loja no escopo.';
+    el.innerHTML = '<div class="empty">' + msg + '</div>';
     return;
   }
   el.innerHTML = `
@@ -4250,16 +5026,17 @@ async function salvarFranquia(id) {
   if (!res.ok) return alert(res.error);
   fecharModalAdmin();
   await carregarAdminFranquias();
+  atualizarAdminGuia();
 }
 
-function abrirModalUsuario(id) {
+function abrirModalUsuario(id, preset = {}) {
   const editando = id != null;
   const u = editando ? window.adminCache.usuarios.find(x => x.id === id) : null;
   const master = isMasterAdmin();
   const niveis = master
     ? ['operador', 'franqueado', 'master']
     : ['operador'];
-  const nivelAtual = u?.nivel_acesso || 'operador';
+  const nivelAtual = u?.nivel_acesso || preset.nivel || 'operador';
 
   abrirModalAdmin(editando ? 'Editar usuário' : 'Novo usuário', `
     <div class="campo" style="margin-bottom:12px">
@@ -4300,10 +5077,10 @@ function abrirModalUsuario(id) {
       <button class="btn btn-primary btn-sm" onclick="salvarUsuario(${editando ? id : 'null'})">Salvar</button>
     </div>
   `);
-  preencherCamposUsuarioAdmin(u);
+  preencherCamposUsuarioAdmin(u, preset);
 }
 
-function preencherCamposUsuarioAdmin(u) {
+function preencherCamposUsuarioAdmin(u, preset = {}) {
   const lojas = window.adminCache.lojas || [];
   const franquias = window.adminCache.franquias || [];
   const selLoja = document.getElementById('adm-user-loja');
@@ -4314,13 +5091,18 @@ function preencherCamposUsuarioAdmin(u) {
   }
   const checks = document.getElementById('adm-user-franquias-checks');
   if (checks) {
-    const ids = u?.franquia_ids || [];
+    const ids = u?.franquia_ids || (preset.franquiaId ? [preset.franquiaId] : []);
     checks.innerHTML = franquias.filter(f => f.ativo !== false).map(f => `
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;text-transform:none;font-size:13px">
         <input type="checkbox" value="${f.id}" ${ids.includes(f.id) ? 'checked' : ''}/> ${escapeHTML(f.nome)}
       </label>
     `).join('') || '<div class="empty" style="padding:8px">Cadastre franquias primeiro.</div>';
   }
+  if (preset.nivel) {
+    const selNivel = document.getElementById('adm-user-nivel');
+    if (selNivel) selNivel.value = preset.nivel;
+  }
+  if (preset.lojaId && selLoja) selLoja.value = String(preset.lojaId);
   toggleCamposUsuarioAdmin();
 }
 
@@ -4359,6 +5141,7 @@ async function salvarUsuario(id) {
   }
   fecharModalAdmin();
   await carregarAdminUsuarios();
+  atualizarAdminGuia();
 }
 
 function abrirModalSenhaUsuario(id) {
@@ -4462,6 +5245,102 @@ async function salvarLojaFranquia(lojaId) {
   if (!res.ok) return alert(res.error);
   fecharModalAdmin();
   await carregarAdminLojas();
+  await carregarAdminFranquias();
+  atualizarAdminGuia();
+}
+
+// ── Meu Perfil ───────────────────────────────────────────
+function perfilIniciais(nome) {
+  if (!nome) return '?';
+  const partes = nome.trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) return '?';
+  if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
+  return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
+}
+
+function perfilKvRow(label, value) {
+  if (value == null || value === '') return '';
+  return `
+    <div class="perfil-kv-row">
+      <span class="perfil-kv-label">${escapeHTML(label)}</span>
+      <span class="perfil-kv-value">${escapeHTML(String(value))}</span>
+    </div>
+  `;
+}
+
+async function carregarPerfil() {
+  const hero = document.getElementById('perfil-hero');
+  const info = document.getElementById('perfil-info');
+  if (!hero || !info) return;
+
+  hero.innerHTML = '<div class="loading" style="padding:32px"><div class="spinner"></div></div>';
+  info.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  const data = await api('/api/usuario/perfil');
+  if (!data) {
+    hero.innerHTML = '<div style="padding:28px;color:#ffb4a8">Não foi possível carregar o perfil.</div>';
+    info.innerHTML = '';
+    return;
+  }
+
+  const u = data.usuario || {};
+  const franquias = data.franquias || [];
+  const escopo = data.lojas_no_escopo;
+
+  hero.innerHTML = `
+    <div class="perfil-hero">
+      <div class="perfil-avatar">${escapeHTML(perfilIniciais(u.nome))}</div>
+      <div class="perfil-hero-text">
+        <h2>${escapeHTML(u.nome || '—')}</h2>
+        <p>${escapeHTML(u.email || '—')}</p>
+        <span class="perfil-badge">${escapeHTML(u.perfil_label || '—')}</span>
+      </div>
+    </div>
+  `;
+
+  let linhas = perfilKvRow('Membro desde', DT(u.criado_em));
+
+  if (u.nivel_acesso === 'operador' && u.loja_nome) {
+    const cidade = [u.loja_municipio, u.loja_uf].filter(Boolean).join('/');
+    linhas += perfilKvRow('Loja vinculada', u.loja_nome + (cidade ? ' · ' + cidade : ''));
+  }
+  if (u.franquia_principal) {
+    linhas += perfilKvRow('Franquia principal', u.franquia_principal);
+  }
+  if (franquias.length) {
+    const chips = franquias.map(f => `<span class="perfil-chip">${escapeHTML(f.nome)}</span>`).join('');
+    linhas += `
+      <div class="perfil-kv-row">
+        <span class="perfil-kv-label">Franquias vinculadas</span>
+        <div class="perfil-chips">${chips}</div>
+      </div>
+    `;
+  }
+  if (u.nivel_acesso === 'master' || u.nivel_acesso === 'franqueado') {
+    linhas += perfilKvRow('Lojas no escopo', `${escopo} loja${escopo === 1 ? '' : 's'}`);
+  }
+
+  info.innerHTML = `<div class="perfil-kv">${linhas || '<span class="perfil-kv-label">Sem vínculos adicionais.</span>'}</div>`;
+
+  if (u.nome) document.getElementById('sidebar-user-name').textContent = u.nome;
+  if (u.perfil_label) document.getElementById('sidebar-user-level').textContent = u.perfil_label;
+}
+
+async function salvarSenhaPerfil(event) {
+  if (event) event.preventDefault();
+  const nova = document.getElementById('perfil-senha-nova').value;
+  const confirma = document.getElementById('perfil-senha-confirma').value;
+
+  if (!nova) return alert('Digite a nova senha.');
+  if (nova.length < 6) return alert('A nova senha deve ter ao menos 6 caracteres.');
+  if (nova !== confirma) return alert('A confirmação não coincide com a nova senha.');
+
+  const res = await apiJson('PUT', '/api/usuario/perfil/senha', { senha_nova: nova });
+  if (!res.ok) return alert(res.error || 'Erro ao alterar senha.');
+
+  document.getElementById('perfil-senha-nova').value = '';
+  document.getElementById('perfil-senha-confirma').value = '';
+  alert('Senha alterada com sucesso.');
 }
 
 // ── Venda Casada ─────────────────────────────────────────
@@ -4684,7 +5563,10 @@ function copiar(id) {
 // ── Init ─────────────────────────────────────────────────
 async function inicializar() {
   await carregarLojasNoSeletor();
-  carregarDashboard();
+  const page = paginaDoHash();
+  const raw = (location.hash || '').replace(/^#\/?/, '').split('?')[0].trim();
+  const hashInvalido = !!raw && page === 'dashboard';
+  goTo(page, {}, { fromHash: true, replaceHash: hashInvalido });
 }
 
 checarSessao();

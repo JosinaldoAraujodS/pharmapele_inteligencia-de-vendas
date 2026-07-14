@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <style>
 :root {
   --brand: #0b4a7d;
@@ -2081,6 +2082,90 @@ Até breve! 💙<br><em>Equipe Pharmapele</em>
 
 <script>
 const API = '';
+if (typeof ChartDataLabels !== 'undefined') {
+  Chart.register(ChartDataLabels);
+  Chart.defaults.set('plugins.datalabels', {
+    color: '#fff',
+    font: { weight: '600', size: 12, family: "'DM Sans', sans-serif" },
+    textShadowBlur: 4,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    formatter: function(value, context) {
+      if (!value) return '';
+      
+      // Mostrar percentual nos gráficos de pizza/rosca
+      if (context.chart.config.type === 'doughnut' || context.chart.config.type === 'pie') {
+        const total = context.dataset.data.reduce((acc, curr) => acc + (curr || 0), 0);
+        const percentual = (value / total) * 100;
+        return percentual.toFixed(1).replace('.0', '') + '%';
+      }
+      
+      // Mostrar valor completo formatado (pt-BR) nos gráficos de barras
+      if (typeof value === 'number') {
+        return value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+      }
+      return value;
+    },
+    display: function(context) {
+      // Exibir os rótulos APENAS nos gráficos do dashboard
+      const canvasId = context.chart.canvas.id;
+      const dashboardCharts = ['chart-faturamento', 'chart-descontos', 'chart-pagamentos', 'chart-categorias'];
+      if (!dashboardCharts.includes(canvasId)) return false;
+
+      const value = context.dataset.data[context.dataIndex];
+      if (!value || value === 0) return false;
+      
+      // Esconder rótulos de fatias muito pequenas (menores que 5%) para não encavalar
+      if (context.chart.config.type === 'doughnut' || context.chart.config.type === 'pie') {
+        const total = context.dataset.data.reduce((acc, curr) => acc + (curr || 0), 0);
+        const percentual = (value / total) * 100;
+        if (percentual < 5) return false;
+      }
+      
+      return true;
+    }
+  });
+  
+  // Customizar tooltips (ao passar o mouse) para exibir valor absoluto e percentual
+  if (!Chart.defaults.plugins.tooltip) Chart.defaults.plugins.tooltip = { callbacks: {} };
+  if (!Chart.defaults.plugins.tooltip.callbacks) Chart.defaults.plugins.tooltip.callbacks = {};
+  
+  const defaultLabelCb = Chart.defaults.plugins.tooltip.callbacks.label || function(context) {
+    let label = context.dataset.label || '';
+    if (label) label += ': ';
+    if (context.parsed.y !== null && context.chart.config.type !== 'doughnut' && context.chart.config.type !== 'pie') {
+      label += context.parsed.y;
+    } else {
+      label += context.raw;
+    }
+    return label;
+  };
+  
+  Chart.defaults.plugins.tooltip.callbacks.label = function(context) {
+    let label = context.label || context.dataset.label || '';
+    if (label) label += ': ';
+    
+    const value = context.raw;
+    
+    if (context.chart.config.type === 'doughnut' || context.chart.config.type === 'pie') {
+      const total = context.dataset.data.reduce((acc, curr) => acc + (curr || 0), 0);
+      const percentual = ((value / total) * 100).toFixed(1).replace('.0', '') + '%';
+      
+      // Formatar o valor completo (pt-BR)
+      let formattedValue = value;
+      if (typeof value === 'number') {
+        formattedValue = value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+      }
+      
+      return label + formattedValue + ' (' + percentual + ')';
+    }
+    
+    // Para outros gráficos (ex: barras), mantém o padrão formatado
+    if (typeof value === 'number') {
+        return label + value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+    }
+    return defaultLabelCb(context);
+  };
+}
 let chartFat = null, chartCat = null, chartPag = null, chartDesc = null;
 let chartAnalSemana = null, chartAnalMes = null, chartAnalHora = null, chartAnalLojas = null;
 let chartAnalClientes = null, chartAnalTicketPag = null, chartAnalTicketCat = null, chartAnalTicketLoja = null;
@@ -2817,7 +2902,7 @@ async function carregarDashboard() {
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          y: { ticks: { callback: v => 'R$' + (v/1000).toFixed(0) + 'k' } }
+          y: { ticks: { callback: v => 'R$' + (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v) } }
         },
         onClick: (evt, elements) => {
           if (elements.length) clicarMesFaturamento(elements[0].index);
@@ -3487,15 +3572,32 @@ async function verCliente(id, nome) {
   document.getElementById('modal-nome').textContent = c.nome;
 
   let html = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;font-size:13px">
-      <div>📱 ${formatTel(c.telefone) || '—'}</div>
-      <div>🏙️ ${escapeHTML(c.municipio) || '—'} / ${escapeHTML(c.uf) || '—'}</div>
+    <div id="cliente-view-mode">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;font-size:13px">
+        <div>📱 ${formatTel(c.telefone) || '—'}</div>
+        <div>🏙️ ${escapeHTML(c.municipio) || '—'} / ${escapeHTML(c.uf) || '—'}</div>
+      </div>
+      <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+        ${c.telefone ? `<a href="https://wa.me/55${limpaFone(c.telefone)}" target="_blank" class="btn btn-ouro btn-sm">💬 WhatsApp</a>` : ''}
+        <button class="btn btn-outline btn-sm" onclick="toggleClienteEditMode(true)">✏️ Editar Contato</button>
+      </div>
+    </div>
+    
+    <div id="cliente-edit-mode" style="display:none; background:var(--cinza-1); padding:16px; border-radius:8px; margin-bottom:20px;">
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px; font-weight:600; color:var(--texto-leve); display:block; margin-bottom:4px">Nome do Cliente</label>
+        <input type="text" id="edit-cliente-nome" value="${escapeHTML(c.nome)}" style="width:100%; padding:8px; border:1px solid var(--cinza-2); border-radius:6px; font-family:inherit;">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px; font-weight:600; color:var(--texto-leve); display:block; margin-bottom:4px">Telefone (apenas números)</label>
+        <input type="text" id="edit-cliente-telefone" value="${escapeHTML(c.telefone || '')}" style="width:100%; padding:8px; border:1px solid var(--cinza-2); border-radius:6px; font-family:inherit;">
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary btn-sm" onclick="salvarClienteEdicao(${c.id})">Salvar</button>
+        <button class="btn btn-outline btn-sm" onclick="toggleClienteEditMode(false)">Cancelar</button>
+      </div>
     </div>
   `;
-
-  if (c.telefone) {
-    html += `<a href="https://wa.me/55${limpaFone(c.telefone)}" target="_blank" class="btn btn-ouro btn-sm" style="margin-bottom:16px">💬 WhatsApp</a>`;
-  }
 
   if (data.recompras_previstas?.length) {
     html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--brand)">🔔 Recompras Previstas</div>`;
@@ -3546,6 +3648,36 @@ async function verCliente(id, nome) {
 function fecharModal() {
   document.getElementById('modal-cliente').classList.remove('active');
 }
+
+window.toggleClienteEditMode = function(showEdit) {
+  document.getElementById('cliente-view-mode').style.display = showEdit ? 'none' : 'block';
+  document.getElementById('cliente-edit-mode').style.display = showEdit ? 'block' : 'none';
+};
+
+window.salvarClienteEdicao = async function(id) {
+  const nome = document.getElementById('edit-cliente-nome').value.trim();
+  const telefone = document.getElementById('edit-cliente-telefone').value.trim();
+  if (!nome) return alert('O nome é obrigatório.');
+  
+  const token = localStorage.getItem('token');
+  const res = await fetch('/api/clientes/' + id, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token
+    },
+    body: JSON.stringify({ nome, telefone })
+  });
+  
+  if (!res.ok) {
+    alert('Erro ao salvar os dados do cliente.');
+    return;
+  }
+  
+  // Recarregar os dados no modal e atualizar a tabela por trás
+  await verCliente(id, nome);
+  if (typeof carregarClientes === 'function') carregarClientes();
+};
 
 function fecharModalNota() {
   document.getElementById('modal-nota').classList.remove('active');

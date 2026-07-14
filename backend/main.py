@@ -676,9 +676,23 @@ def root():
     return {"msg": "Pharmapele API rodando"}
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    favicon_path = os.path.join(BASE_DIR, "pharmapele.png")
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path)
+    return Response(status_code=204)
+
+
+
 class LoginRequest(BaseModel):
     email: str
     senha: str
+
+
+class ClienteUpdate(BaseModel):
+    nome: str
+    telefone: Optional[str] = None
 
 
 @app.post("/api/login")
@@ -1537,6 +1551,26 @@ def listar_clientes(
         "limit": limit,
         "offset": offset,
     }
+
+
+@app.put("/api/clientes/{cliente_id}")
+def atualizar_cliente(
+    cliente_id: int,
+    req: ClienteUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Atualiza as informações de contato do cliente (nome e telefone)."""
+    row = query("SELECT id FROM clientes WHERE id = %s", (cliente_id,), fetchall=False)
+    if not row:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado")
+    
+    execute("""
+        UPDATE clientes 
+        SET nome = %s, telefone = %s, atualizado_em = NOW() 
+        WHERE id = %s
+    """, (req.nome, req.telefone, cliente_id))
+    
+    return {"status": "ok", "msg": "Cliente atualizado com sucesso"}
 
 
 @app.get("/api/clientes/{cliente_id}/historico")

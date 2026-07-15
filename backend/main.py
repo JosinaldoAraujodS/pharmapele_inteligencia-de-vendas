@@ -596,8 +596,6 @@ def salvar_nfce(nfce: dict) -> dict:
                 INSERT INTO lojas (cnpj, nome_fantasia, razao_social, endereco, municipio, uf, telefone)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (cnpj) DO UPDATE SET
-                    nome_fantasia = EXCLUDED.nome_fantasia,
-                    razao_social = EXCLUDED.razao_social,
                     endereco = EXCLUDED.endereco,
                     municipio = EXCLUDED.municipio,
                     uf = EXCLUDED.uf,
@@ -693,6 +691,17 @@ class LoginRequest(BaseModel):
 class ClienteUpdate(BaseModel):
     nome: str
     telefone: Optional[str] = None
+
+
+class LojaCreate(BaseModel):
+    cnpj: str
+    nome_fantasia: str
+    razao_social: str
+    endereco: Optional[str] = None
+    municipio: Optional[str] = None
+    uf: Optional[str] = None
+    telefone: Optional[str] = None
+    franquia_id: Optional[int] = None
 
 
 @app.post("/api/login")
@@ -2476,6 +2485,64 @@ def admin_listar_lojas(current_user: dict = Depends(get_current_user)):
             ORDER BY l.nome_fantasia
         """, (lojas_ids,))
     return {"lojas": [dict(r) for r in rows]}
+
+
+@app.post("/api/admin/lojas")
+def admin_criar_loja(
+    body: LojaCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_master(current_user)
+    
+    if body.franquia_id is not None:
+        fr = query("SELECT id FROM franquias WHERE id = %s", (body.franquia_id,), fetchall=False)
+        if not fr:
+            raise HTTPException(status_code=404, detail="Franquia não encontrada")
+            
+    existente = query("SELECT id FROM lojas WHERE cnpj = %s", (body.cnpj,), fetchall=False)
+    if existente:
+        raise HTTPException(status_code=400, detail="Já existe uma loja com este CNPJ")
+        
+    try:
+        row = query("""
+            INSERT INTO lojas (cnpj, nome_fantasia, razao_social, endereco, municipio, uf, telefone, franquia_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (body.cnpj, body.nome_fantasia, body.razao_social, body.endereco, body.municipio, body.uf, body.telefone, body.franquia_id), fetchall=False)
+        return {"status": "ok", "loja_id": row["id"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao criar loja: {str(e)}")
+
+@app.put("/api/admin/lojas/{loja_id}")
+def admin_editar_loja(
+    loja_id: int,
+    body: LojaCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_master(current_user)
+    
+    loja = query("SELECT id FROM lojas WHERE id = %s", (loja_id,), fetchall=False)
+    if not loja:
+        raise HTTPException(status_code=404, detail="Loja não encontrada")
+
+    if body.franquia_id is not None:
+        fr = query("SELECT id FROM franquias WHERE id = %s", (body.franquia_id,), fetchall=False)
+        if not fr:
+            raise HTTPException(status_code=404, detail="Franquia não encontrada")
+            
+    existente = query("SELECT id FROM lojas WHERE cnpj = %s AND id != %s", (body.cnpj, loja_id), fetchall=False)
+    if existente:
+        raise HTTPException(status_code=400, detail="Já existe outra loja com este CNPJ")
+        
+    try:
+        execute("""
+            UPDATE lojas
+            SET cnpj = %s, nome_fantasia = %s, razao_social = %s, endereco = %s, municipio = %s, uf = %s, telefone = %s, franquia_id = %s, atualizado_em = NOW()
+            WHERE id = %s
+        """, (body.cnpj, body.nome_fantasia, body.razao_social, body.endereco, body.municipio, body.uf, body.telefone, body.franquia_id, loja_id))
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao atualizar loja: {str(e)}")
 
 
 @app.put("/api/admin/lojas/{loja_id}/franquia")

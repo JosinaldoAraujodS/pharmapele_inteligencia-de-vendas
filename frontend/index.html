@@ -1050,6 +1050,32 @@ tr.row-clickable:hover td { background: var(--brand-pale); }
   background: linear-gradient(90deg, var(--brand-light), var(--brand));
   transition: width .4s;
 }
+/* ── Admin Forms ── */
+.admin-form { display: flex; flex-direction: column; gap: 14px; }
+.admin-form .campo { display: flex; flex-direction: column; gap: 6px; margin-bottom: 0 !important; }
+.admin-form label { font-size: 13px; font-weight: 500; color: var(--texto); }
+.admin-form input[type="text"],
+.admin-form input[type="email"],
+.admin-form input[type="password"],
+.admin-form select {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 8px;
+  border: 1.5px solid var(--cinza-2);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  background: #fff;
+  transition: border-color .2s, box-shadow .2s;
+}
+.admin-form input[type="text"]:focus,
+.admin-form input[type="email"]:focus,
+.admin-form input[type="password"]:focus,
+.admin-form select:focus {
+  border-color: var(--brand-light);
+  box-shadow: 0 0 0 3px rgba(32, 123, 199, .12);
+}
+.admin-form input::placeholder { color: var(--cinza-3); }
 </style>
 </head>
 <body>
@@ -1559,13 +1585,19 @@ tr.row-clickable:hover td { background: var(--brand-pale); }
     </div>
 
     <div class="card analises-sec" id="anal-sec-lojas" style="margin-bottom:20px;display:none">
-      <div class="card-header"><span class="card-title">🏪 Top lojas em vendas</span></div>
+      <div class="card-header"><span class="card-title">🏪 Top 10 Lojas em Vendas</span></div>
       <div class="card-body">
-        <div class="chart-box sm" style="margin-bottom:16px"><canvas id="chart-anal-lojas"></canvas></div>
-        <div class="table-wrap">
+        <div class="table-wrap" style="margin:0">
           <table>
             <thead>
-              <tr><th>#</th><th>Loja</th><th>Franquia</th><th>Faturamento</th><th>Notas</th><th>Ticket</th><th>Clientes</th></tr>
+              <tr>
+                <th style="width:40px;text-align:center">#</th>
+                <th>Loja</th>
+                <th>Franquia</th>
+                <th style="text-align:right">Faturamento</th>
+                <th style="text-align:right">Notas</th>
+                <th style="text-align:right">Ticket</th>
+              </tr>
             </thead>
             <tbody id="tabela-top-lojas"></tbody>
           </table>
@@ -1977,7 +2009,10 @@ Até breve! 💙<br><em>Equipe Pharmapele</em>
     </div>
 
     <div id="admin-panel-lojas" class="card" style="margin-bottom:20px;display:none">
-      <div class="card-header"><span class="card-title">Lojas e vínculos com franquia</span></div>
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <span class="card-title">Lojas e vínculos com franquia</span>
+        <button class="btn btn-primary btn-sm" onclick="abrirModalLoja(null)">+ Nova loja</button>
+      </div>
       <div class="card-body">
         <p style="font-size:13px;color:var(--texto-leve);margin-bottom:12px" id="admin-lojas-hint">
           Lojas importadas via XML podem ficar sem franquia até serem vinculadas pela matriz.
@@ -4337,6 +4372,41 @@ function aplicarFiltrosAnalises() {
   carregarAnalises();
 }
 
+function renderHorizontalBarAnalise(canvasId, chartRef, labels, valores, cor) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return chartRef;
+  const ctx = canvas.getContext('2d');
+  if (chartRef) chartRef.destroy();
+  if (!labels?.length) return null;
+  
+  const gradient = ctx.createLinearGradient(0, 0, 400, 0);
+  gradient.addColorStop(0, cor || 'rgba(11, 74, 125, 0.7)');
+  gradient.addColorStop(1, cor ? cor.replace(/[\d.]+\)$/g, '1)') : 'rgba(11, 74, 125, 1)');
+
+  return new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels.map(l => l.length > 20 ? l.substring(0,20)+'...' : l),
+      datasets: [{
+        data: valores,
+        backgroundColor: gradient,
+        borderRadius: 4,
+        barPercentage: 0.6,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { callback: v => 'R$' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) } },
+        y: { ticks: { font: { size: 10, weight: 'bold' } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
 function renderBarAnalise(canvasId, chartRef, labels, valores, cor) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return chartRef;
@@ -4672,27 +4742,21 @@ async function carregarAnalises() {
   atualizarNavAnalisesLojas(mostrarLojas);
   if (mostrarLojas) {
     secLojas.style.display = 'block';
-    chartAnalLojas = renderBarAnalise(
-      'chart-anal-lojas',
-      chartAnalLojas,
-      lojas.slice(0, 10).map(r => r.loja),
-      lojas.slice(0, 10).map(r => Number(r.faturamento)),
-      'rgba(11, 74, 125, 0.65)'
-    );
-    document.getElementById('tabela-top-lojas').innerHTML = lojas.map((l, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td><strong>${escapeHTML(l.loja)}</strong></td>
-        <td><span class="badge badge-cinza">${escapeHTML(l.franquia)}</span></td>
-        <td>${BRL(l.faturamento)}</td>
-        <td>${NUM(l.notas)}</td>
-        <td>${BRL(l.ticket_medio)}</td>
-        <td>${NUM(l.clientes)}</td>
-      </tr>
-    `).join('');
+    document.getElementById('tabela-top-lojas').innerHTML = lojas.slice(0, 10).map((l, i) => {
+      const lojaNome = l.loja.length > 25 ? l.loja.substring(0,25) + '...' : l.loja;
+      return `
+        <tr>
+          <td style="font-size:14px;text-align:center;color:var(--texto-leve)">${i + 1}</td>
+          <td title="${escapeHTML(l.loja)}"><strong>${escapeHTML(lojaNome)}</strong></td>
+          <td><span class="badge badge-cinza">${escapeHTML(l.franquia || 'Sem franquia')}</span></td>
+          <td style="text-align:right;font-family:monospace;font-size:13px">${BRL(l.faturamento)}</td>
+          <td style="text-align:right;font-family:monospace;font-size:13px">${NUM(l.notas)}</td>
+          <td style="text-align:right;font-family:monospace;font-size:13px">${BRL(l.ticket_medio)}</td>
+        </tr>
+      `;
+    }).join('');
   } else {
     secLojas.style.display = 'none';
-    if (chartAnalLojas) { chartAnalLojas.destroy(); chartAnalLojas = null; }
   }
 
   const prodEl = document.getElementById('top-produtos-por-loja');
@@ -5019,9 +5083,9 @@ function abrirDetalheFranquia(id) {
     <div class="admin-detalhe-sec"><h4>Franqueados</h4>${franqHtml}</div>
     ${vincularLojaHtml}
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:8px">
-      <button class="btn btn-outline btn-sm" onclick="adminTab('lojas', { franquiaId: ${id} }); fecharModalAdmin()">Ver lojas</button>
-      <button class="btn btn-outline btn-sm" onclick="abrirModalFranquia(${id}); fecharModalAdmin()">Editar franquia</button>
-      <button class="btn btn-primary btn-sm" onclick="fecharModalAdmin(); abrirModalUsuario(null, { nivel: 'franqueado', franquiaId: ${id} })">+ Franqueado</button>
+      <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin(); adminTab('lojas', { franquiaId: ${id} })">Ver lojas</button>
+      <button class="btn btn-outline btn-sm" onclick="abrirModalFranquia(${id})">Editar franquia</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalUsuario(null, { nivel: 'franqueado', franquiaId: ${id} })">+ Franqueado</button>
     </div>
   `);
 }
@@ -5116,7 +5180,10 @@ async function carregarAdminLojas() {
               <td>${l.franquia_id
                 ? `<span class="badge badge-brand">${escapeHTML(l.franquia)}</span>`
                 : '<span class="badge badge-ouro">Sem franquia</span>'}</td>
-              ${isMasterAdmin() ? `<td><button class="btn btn-outline btn-sm" onclick="abrirModalLojaFranquia(${l.id})">Vincular</button></td>` : ''}
+              ${isMasterAdmin() ? `<td style="white-space:nowrap">
+                <button class="btn btn-outline btn-sm" onclick="abrirModalLoja(${l.id})">Editar</button>
+                <button class="btn btn-outline btn-sm" onclick="abrirModalLojaFranquia(${l.id})">Vincular</button>
+              </td>` : ''}
             </tr>
           `).join('')}
         </tbody>
@@ -5128,19 +5195,21 @@ function abrirModalFranquia(id) {
   const editando = id != null;
   const f = editando ? window.adminCache.franquias.find(x => x.id === id) : null;
   abrirModalAdmin(editando ? 'Editar franquia' : 'Nova franquia', `
-    <div class="campo" style="margin-bottom:12px">
-      <label>Nome</label>
-      <input type="text" id="adm-franquia-nome" value="${escapeHTML(f?.nome || '')}" />
-    </div>
-    ${editando ? `
-      <div class="campo" style="margin-bottom:16px">
-        <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px">
-          <input type="checkbox" id="adm-franquia-ativo" ${f?.ativo ? 'checked' : ''}/> Franquia ativa
-        </label>
-      </div>` : ''}
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
-      <button class="btn btn-primary btn-sm" onclick="salvarFranquia(${editando ? id : 'null'})">Salvar</button>
+    <div class="admin-form">
+      <div class="campo">
+        <label>Nome</label>
+        <input type="text" id="adm-franquia-nome" value="${escapeHTML(f?.nome || '')}" autocomplete="off" placeholder="Nome da franquia" />
+      </div>
+      ${editando ? `
+        <div class="campo" style="margin-top:6px">
+          <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="adm-franquia-ativo" ${f?.ativo ? 'checked' : ''} style="width:auto;margin:0" /> Franquia ativa
+          </label>
+        </div>` : ''}
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarFranquia(${editando ? id : 'null'})">Salvar</button>
+      </div>
     </div>
   `);
 }
@@ -5171,42 +5240,44 @@ function abrirModalUsuario(id, preset = {}) {
   const nivelAtual = u?.nivel_acesso || preset.nivel || 'operador';
 
   abrirModalAdmin(editando ? 'Editar usuário' : 'Novo usuário', `
-    <div class="campo" style="margin-bottom:12px">
-      <label>Nome</label>
-      <input type="text" id="adm-user-nome" value="${escapeHTML(u?.nome || '')}" />
-    </div>
-    <div class="campo" style="margin-bottom:12px">
-      <label>E-mail</label>
-      <input type="email" id="adm-user-email" value="${escapeHTML(u?.email || '')}" />
-    </div>
-    ${!editando ? `
-      <div class="campo" style="margin-bottom:12px">
-        <label>Senha inicial</label>
-        <input type="password" id="adm-user-senha" placeholder="Mínimo 6 caracteres" />
-      </div>` : ''}
-    <div class="campo" style="margin-bottom:12px">
-      <label>Perfil</label>
-      <select id="adm-user-nivel" onchange="toggleCamposUsuarioAdmin()" ${!master && editando ? 'disabled' : ''}>
-        ${niveis.map(n => `<option value="${n}" ${nivelAtual === n ? 'selected' : ''}>${n}</option>`).join('')}
-      </select>
-    </div>
-    <div class="campo" id="adm-campo-loja" style="margin-bottom:12px;display:none">
-      <label>Loja (operador)</label>
-      <select id="adm-user-loja"></select>
-    </div>
-    <div id="adm-campo-franquias" style="margin-bottom:12px;display:none">
-      <label style="display:block;margin-bottom:6px">Franquias (franqueado)</label>
-      <div id="adm-user-franquias-checks"></div>
-    </div>
-    ${editando ? `
-      <div class="campo" style="margin-bottom:16px">
-        <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px">
-          <input type="checkbox" id="adm-user-ativo" ${u?.ativo ? 'checked' : ''}/> Usuário ativo
-        </label>
-      </div>` : ''}
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
-      <button class="btn btn-primary btn-sm" onclick="salvarUsuario(${editando ? id : 'null'})">Salvar</button>
+    <div class="admin-form">
+      <div class="campo">
+        <label>Nome</label>
+        <input type="text" id="adm-user-nome" value="${escapeHTML(u?.nome || '')}" autocomplete="off" placeholder="Nome completo" />
+      </div>
+      <div class="campo">
+        <label>E-mail</label>
+        <input type="email" id="adm-user-email" value="${escapeHTML(u?.email || '')}" autocomplete="new-password" placeholder="email@exemplo.com" />
+      </div>
+      ${!editando ? `
+        <div class="campo">
+          <label>Senha inicial</label>
+          <input type="password" id="adm-user-senha" autocomplete="new-password" placeholder="Mínimo 6 caracteres" />
+        </div>` : ''}
+      <div class="campo">
+        <label>Perfil</label>
+        <select id="adm-user-nivel" onchange="toggleCamposUsuarioAdmin()" ${!master && editando ? 'disabled' : ''}>
+          ${niveis.map(n => `<option value="${n}" ${nivelAtual === n ? 'selected' : ''}>${n}</option>`).join('')}
+        </select>
+      </div>
+      <div class="campo" id="adm-campo-loja" style="display:none">
+        <label>Loja (operador)</label>
+        <select id="adm-user-loja"></select>
+      </div>
+      <div id="adm-campo-franquias" style="display:none">
+        <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--texto)">Franquias (franqueado)</label>
+        <div id="adm-user-franquias-checks"></div>
+      </div>
+      ${editando ? `
+        <div class="campo" style="margin-top:6px">
+          <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="adm-user-ativo" ${u?.ativo ? 'checked' : ''} style="width:auto;margin:0" /> Usuário ativo
+          </label>
+        </div>` : ''}
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarUsuario(${editando ? id : 'null'})">Salvar</button>
+      </div>
     </div>
   `);
   preencherCamposUsuarioAdmin(u, preset);
@@ -5279,13 +5350,15 @@ async function salvarUsuario(id) {
 function abrirModalSenhaUsuario(id) {
   const u = window.adminCache.usuarios.find(x => x.id === id);
   abrirModalAdmin('Nova senha · ' + (u?.nome || ''), `
-    <div class="campo" style="margin-bottom:16px">
-      <label>Nova senha</label>
-      <input type="password" id="adm-user-nova-senha" placeholder="Mínimo 6 caracteres" />
-    </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
-      <button class="btn btn-primary btn-sm" onclick="salvarSenhaUsuario(${id})">Salvar</button>
+    <div class="admin-form">
+      <div class="campo">
+        <label>Nova senha</label>
+        <input type="password" id="adm-user-nova-senha" autocomplete="new-password" placeholder="Mínimo 6 caracteres" />
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarSenhaUsuario(${id})">Salvar</button>
+      </div>
     </div>
   `);
 }
@@ -5304,16 +5377,19 @@ function abrirModalFranquiasUsuario(id) {
   const franquias = window.adminCache.franquias || [];
   const ids = u?.franquia_ids || [];
   abrirModalAdmin('Franquias · ' + (u?.nome || ''), `
-    <div id="adm-vinc-franquias-checks" style="margin-bottom:16px">
-      ${franquias.map(f => `
-        <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;text-transform:none;font-size:13px">
-          <input type="checkbox" value="${f.id}" ${ids.includes(f.id) ? 'checked' : ''}/> ${escapeHTML(f.nome)}
-        </label>
-      `).join('')}
-    </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
-      <button class="btn btn-primary btn-sm" onclick="salvarFranquiasUsuario(${id})">Salvar</button>
+    <div class="admin-form">
+      <label style="margin-bottom:4px">Selecione as franquias</label>
+      <div id="adm-vinc-franquias-checks">
+        ${franquias.map(f => `
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;text-transform:none;font-size:13px;cursor:pointer">
+            <input type="checkbox" value="${f.id}" ${ids.includes(f.id) ? 'checked' : ''} style="width:auto;margin:0"/> ${escapeHTML(f.nome)}
+          </label>
+        `).join('')}
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarFranquiasUsuario(${id})">Salvar</button>
+      </div>
     </div>
   `);
 }
@@ -5331,15 +5407,17 @@ function abrirModalLojaUsuario(id) {
   const u = window.adminCache.usuarios.find(x => x.id === id);
   const lojas = window.adminCache.lojas || [];
   abrirModalAdmin('Loja do operador · ' + (u?.nome || ''), `
-    <div class="campo" style="margin-bottom:16px">
-      <label>Loja</label>
-      <select id="adm-vinc-user-loja">
-        ${lojas.map(l => `<option value="${l.id}" ${u?.loja_id === l.id ? 'selected' : ''}>${escapeHTML(l.nome_fantasia)}</option>`).join('')}
-      </select>
-    </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
-      <button class="btn btn-primary btn-sm" onclick="salvarLojaUsuario(${id})">Salvar</button>
+    <div class="admin-form">
+      <div class="campo">
+        <label>Loja</label>
+        <select id="adm-vinc-user-loja">
+          ${lojas.map(l => `<option value="${l.id}" ${u?.loja_id === l.id ? 'selected' : ''}>${escapeHTML(l.nome_fantasia)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarLojaUsuario(${id})">Salvar</button>
+      </div>
     </div>
   `);
 }
@@ -5356,16 +5434,18 @@ function abrirModalLojaFranquia(lojaId) {
   const l = window.adminCache.lojas.find(x => x.id === lojaId);
   const franquias = window.adminCache.franquias || [];
   abrirModalAdmin('Vincular franquia · ' + (l?.nome_fantasia || ''), `
-    <div class="campo" style="margin-bottom:16px">
-      <label>Franquia</label>
-      <select id="adm-vinc-loja-franquia">
-        <option value="">— Sem franquia —</option>
-        ${franquias.map(f => `<option value="${f.id}" ${l?.franquia_id === f.id ? 'selected' : ''}>${escapeHTML(f.nome)}</option>`).join('')}
-      </select>
-    </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
-      <button class="btn btn-primary btn-sm" onclick="salvarLojaFranquia(${lojaId})">Salvar</button>
+    <div class="admin-form">
+      <div class="campo">
+        <label>Franquia</label>
+        <select id="adm-vinc-loja-franquia">
+          <option value="">— Sem franquia —</option>
+          ${franquias.map(f => `<option value="${f.id}" ${l?.franquia_id === f.id ? 'selected' : ''}>${escapeHTML(f.nome)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarLojaFranquia(${lojaId})">Salvar</button>
+      </div>
     </div>
   `);
 }
@@ -5379,6 +5459,87 @@ async function salvarLojaFranquia(lojaId) {
   await carregarAdminLojas();
   await carregarAdminFranquias();
   atualizarAdminGuia();
+}
+
+function aplicarMascaraCNPJInput(event) {
+  let v = event.target.value.replace(/\D/g, "");
+  if (v.length > 14) v = v.substring(0, 14);
+  v = v.replace(/^(\d{2})(\d)/, "$1.$2");
+  v = v.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3");
+  v = v.replace(/\.(\d{3})(\d)/, ".$1/$2");
+  v = v.replace(/(\d{4})(\d)/, "$1-$2");
+  event.target.value = v;
+}
+
+function abrirModalLoja(id) {
+  const editando = id != null;
+  const l = editando ? window.adminCache.lojas.find(x => x.id === id) : null;
+  const franquias = window.adminCache.franquias || [];
+  abrirModalAdmin(editando ? 'Editar loja' : 'Nova loja manual', `
+    <div class="admin-form">
+      <div class="campo">
+        <label>CNPJ</label>
+        <input type="text" id="adm-nova-loja-cnpj" placeholder="00.000.000/0000-00" autocomplete="off" maxlength="18" oninput="aplicarMascaraCNPJInput(event)" value="${escapeHTML(formatarCNPJ(l?.cnpj) || '')}" />
+      </div>
+      <div class="campo">
+        <label>Nome Fantasia</label>
+        <input type="text" id="adm-nova-loja-nome" placeholder="Ex: Pharmapele Centro" autocomplete="off" value="${escapeHTML(l?.nome_fantasia || '')}" />
+      </div>
+      <div class="campo">
+        <label>Razão Social</label>
+        <input type="text" id="adm-nova-loja-razao" placeholder="Ex: Empresa X Ltda" autocomplete="off" value="${escapeHTML(l?.razao_social || '')}" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="campo">
+          <label>Município</label>
+          <input type="text" id="adm-nova-loja-mun" placeholder="Cidade" autocomplete="off" value="${escapeHTML(l?.municipio || '')}" />
+        </div>
+        <div class="campo">
+          <label>UF</label>
+          <input type="text" id="adm-nova-loja-uf" placeholder="Ex: SP" autocomplete="off" maxlength="2" value="${escapeHTML(l?.uf || '')}" />
+        </div>
+      </div>
+      <div class="campo">
+        <label>Vincular a Franquia (Opcional)</label>
+        <select id="adm-nova-loja-franquia">
+          <option value="">— Sem franquia por enquanto —</option>
+          ${franquias.map(f => `<option value="${f.id}" ${l?.franquia_id === f.id ? 'selected' : ''}>${escapeHTML(f.nome)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-outline btn-sm" onclick="fecharModalAdmin()">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarLoja(${editando ? id : 'null'})">Salvar Loja</button>
+      </div>
+    </div>
+  `);
+}
+
+async function salvarLoja(id) {
+  const cnpj = document.getElementById('adm-nova-loja-cnpj').value.replace(/\D/g, '');
+  const nome_fantasia = document.getElementById('adm-nova-loja-nome').value.trim();
+  const razao_social = document.getElementById('adm-nova-loja-razao').value.trim();
+  const municipio = document.getElementById('adm-nova-loja-mun').value.trim();
+  const uf = document.getElementById('adm-nova-loja-uf').value.trim().toUpperCase();
+  const f_val = document.getElementById('adm-nova-loja-franquia').value;
+  const franquia_id = f_val ? Number(f_val) : null;
+
+  if (!cnpj || !nome_fantasia || !razao_social) {
+    return alert('CNPJ, Nome Fantasia e Razão Social são obrigatórios.');
+  }
+
+  const payload = { cnpj, nome_fantasia, razao_social, municipio, uf, franquia_id };
+  let res;
+  if (id) {
+    res = await apiJson('PUT', '/api/admin/lojas/' + id, payload);
+  } else {
+    res = await apiJson('POST', '/api/admin/lojas', payload);
+  }
+  
+  if (!res.ok) return alert(res.error || 'Erro ao salvar loja.');
+  
+  fecharModalAdmin();
+  await carregarAdminLojas();
+  await carregarAdminFranquias();
 }
 
 // ── Meu Perfil ───────────────────────────────────────────

@@ -35,7 +35,7 @@ TELA PARA GERENCIAR FRANQUIAS
 MELHORAR MODAIS
 	USUARIOS - SENHA
 	DETALHES -> botão EDITAR FRANQUIAS nao funciona
-	 Lojas & vínculos - Vincular franquia 
+	Lojas & vínculos - Vincular franquia 
 TELA PARA GERENCIAR USUÁRIOS
 	PERMISSÕES DE ACESSO
 	
